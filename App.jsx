@@ -184,6 +184,15 @@ const GLOBAL_STYLES = `
 
 // ── MAIN ──────────────────────────────────────────────────────────────────
 export default function InterviewCopilot() {
+  const [winW, setWinW]         = useState(window.innerWidth);
+  useEffect(() => {
+    const handler = () => setWinW(window.innerWidth);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  const isTablet = winW < 1100;
+  const [showSignals, setShowSignals] = useState(true);
+
   const [phase, setPhase]       = useState("setup");
   const [candidateName, setCandidateName] = useState("Alex Chen");
   const [roleTitle, setRoleTitle]         = useState("Senior Backend Engineer");
@@ -559,7 +568,12 @@ export default function InterviewCopilot() {
 
       // Wait for WS to open before starting MediaRecorder
       ws.onopen = () => {
-        const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
         recorderRef.current = recorder;
 
         recorder.ondataavailable = (e) => {
@@ -866,7 +880,7 @@ export default function InterviewCopilot() {
       fontFamily:"'IBM Plex Mono','Courier New',monospace",
       display:"grid",
       gridTemplateRows:"56px 1fr auto auto",
-      gridTemplateColumns:"1fr 320px",
+      gridTemplateColumns: isTablet ? (showSignals ? "1fr 280px" : "1fr 0px") : "1fr 320px",
       overflow:"hidden",
     }}>
       <style>{GLOBAL_STYLES}</style>
@@ -895,6 +909,13 @@ export default function InterviewCopilot() {
         <div style={{ width:1, height:18, background:C.edge }}/>
         <span style={{ fontSize:11, color:C.muted }}>{candidateName} · {roleTitle}</span>
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+          {isTablet && (
+            <button onClick={() => setShowSignals(p => !p)} style={{
+              padding:"6px 12px", background: showSignals ? "#1c1c2a" : "transparent",
+              border:`1px solid ${C.edge}`, borderRadius:3,
+              color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
+            }}>{showSignals ? "HIDE ◧" : "SIGNALS ◨"}</button>
+          )}
           <StatusPill status={analyzeStatus}/>
           {lastSummary && (
             <span style={{ fontSize:9, color:C.muted, maxWidth:240, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
@@ -978,8 +999,9 @@ export default function InterviewCopilot() {
 
       {/* ── RIGHT: SIGNALS PANEL ── */}
       <div style={{
-        gridRow:"2/5", overflow:"auto", padding:"14px 12px",
+        gridRow:"2/5", overflow:"auto", padding: (isTablet && !showSignals) ? "0" : "14px 12px",
         borderLeft:`1px solid ${C.edge}`, background:C.surfaceAlt,
+        display: (isTablet && !showSignals) ? "none" : "block",
       }}>
         <div style={{ marginBottom:14 }}>
           <SectionLabel>Scores</SectionLabel>
