@@ -185,12 +185,19 @@ const GLOBAL_STYLES = `
 // ── MAIN ──────────────────────────────────────────────────────────────────
 export default function InterviewCopilot() {
   const [winW, setWinW]         = useState(window.innerWidth);
+  const [winH, setWinH]         = useState(window.innerHeight);
+  const [viewMode, setViewMode] = useState(window.innerWidth < 1100 ? "monitor" : "dashboard");
+  const [monitorProbe, setMonitorProbe]   = useState(null);
+  const [monitorSignal, setMonitorSignal] = useState(null);
+  const probeTimerRef  = useRef(null);
+  const signalTimerRef = useRef(null);
   useEffect(() => {
-    const handler = () => setWinW(window.innerWidth);
+    const handler = () => { setWinW(window.innerWidth); setWinH(window.innerHeight); };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
-  const isTablet = winW < 1100;
+  const isTablet   = winW < 1100;
+  const isPortrait = winH > winW;
   const [showSignals, setShowSignals] = useState(true);
 
   const [phase, setPhase]       = useState("setup");
@@ -249,7 +256,24 @@ export default function InterviewCopilot() {
     clearInterval(timerRef.current);
     clearInterval(periodicRef.current);
     analyzeRef.current?.abort();
+    clearTimeout(probeTimerRef.current);
+    clearTimeout(signalTimerRef.current);
   }, []);
+
+  // Monitor mode — surface latest probe/signal, auto-dismiss
+  useEffect(() => {
+    if (viewMode !== "monitor" || probes.length === 0) return;
+    setMonitorProbe(probes[0]);
+    clearTimeout(probeTimerRef.current);
+    probeTimerRef.current = setTimeout(() => setMonitorProbe(null), 10000);
+  }, [probes, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "monitor" || signals.length === 0) return;
+    setMonitorSignal(signals[0]);
+    clearTimeout(signalTimerRef.current);
+    signalTimerRef.current = setTimeout(() => setMonitorSignal(null), 6000);
+  }, [signals, viewMode]);
 
   useEffect(() => {
     if (tickerRef.current) tickerRef.current.scrollTop = tickerRef.current.scrollHeight;
@@ -450,6 +474,9 @@ export default function InterviewCopilot() {
     speakerMapRef.current = {};
     speakersSeenRef.current = [];
     setSpeakerMap({});
+    setMonitorProbe(null);
+    setMonitorSignal(null);
+    setViewMode(window.innerWidth < 1100 ? "monitor" : "dashboard");
 
     timerRef.current = setInterval(() => setElapsed(e => e+1), 1000);
 
@@ -873,13 +900,127 @@ export default function InterviewCopilot() {
     </div>
   );
 
-  // ── LIVE ──────────────────────────────────────────────────────────────
+  // ── MONITOR VIEW (tablet, quiet mode) ────────────────────────────────
+  if (phase === "live" && viewMode === "monitor") return (
+    <div style={{
+      height:"100vh", background:C.bg, position:"relative", overflow:"hidden",
+      fontFamily:"'IBM Plex Mono','Courier New',monospace", color:C.body,
+      userSelect:"none",
+    }}>
+      <style>{GLOBAL_STYLES}</style>
+
+      {/* Top bar */}
+      <div style={{
+        position:"absolute", top:0, left:0, right:0,
+        padding:"14px 20px", display:"flex", alignItems:"center", gap:12,
+        borderBottom:`1px solid ${C.edge}22`,
+      }}>
+        <span style={{
+          width:7, height:7, borderRadius:"50%", background:"#ef4444", flexShrink:0,
+          animation:"micPulse 1.2s ease-in-out infinite", boxShadow:"0 0 8px #ef444490",
+        }}/>
+        <span style={{ fontSize:12, color:C.muted }}>{candidateName}</span>
+        <span style={{ fontSize:11, color:C.edge, marginLeft:4 }}>·</span>
+        <span style={{ fontSize:12, color:C.muted }}>{roleTitle}</span>
+        <span style={{ fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums", marginLeft:"auto" }}>{fmt(elapsed)}</span>
+        <button onClick={() => setViewMode("dashboard")} style={{
+          padding:"6px 12px", background:"transparent", border:`1px solid ${C.edge}`,
+          borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
+        }}>⊞ FULL</button>
+        <button onClick={endSession} style={{
+          padding:"6px 14px", background:"transparent", border:`1px solid ${C.edge}`,
+          borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
+        }}>■ END</button>
+      </div>
+
+      {/* Probe card — center screen */}
+      {monitorProbe && (
+        <div onClick={() => setMonitorProbe(null)} style={{
+          position:"absolute", top:"45%", left:"50%",
+          transform:"translate(-50%, -50%)",
+          width:"82%", maxWidth:580,
+          padding:"28px 32px",
+          background:"#0c1d2e",
+          border:"1px solid #0ea5e940",
+          borderLeft:"5px solid #0ea5e9",
+          borderRadius:"0 14px 14px 0",
+          animation:"probeIn .4s ease",
+          cursor:"pointer",
+        }}>
+          <div style={{ fontSize:10, letterSpacing:3, color:"#38bdf8", marginBottom:12 }}>SUGGESTED PROBE</div>
+          <div style={{ fontSize:26, color:"#e0f2fe", lineHeight:1.55, fontWeight:500 }}>
+            → {monitorProbe.text}
+          </div>
+          <div style={{ fontSize:10, color:C.edge, marginTop:14 }}>tap to dismiss</div>
+        </div>
+      )}
+
+      {/* Signal badge — below center */}
+      {monitorSignal && (() => {
+        const cfg = SIGNAL_TYPES[monitorSignal.type]; if (!cfg) return null;
+        return (
+          <div onClick={() => setMonitorSignal(null)} style={{
+            position:"absolute", bottom:"26%", left:"50%", transform:"translateX(-50%)",
+            padding:"14px 24px",
+            background:cfg.bg, border:`1px solid ${cfg.border}60`,
+            borderLeft:`4px solid ${cfg.border}`,
+            borderRadius:"0 10px 10px 0",
+            animation:"sigIn .3s ease", cursor:"pointer", whiteSpace:"nowrap",
+          }}>
+            <span style={{ color:cfg.color, fontSize:15 }}>{cfg.icon} </span>
+            <span style={{ fontSize:15, color:cfg.color, fontWeight:600, letterSpacing:1 }}>{cfg.label}</span>
+            {monitorSignal.score != null && (
+              <span style={{ color:cfg.color, fontSize:18, fontWeight:700, marginLeft:14 }}>{monitorSignal.score}</span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Idle / analyzing state */}
+      {!monitorProbe && !monitorSignal && (
+        <div style={{
+          position:"absolute", top:"50%", left:"50%",
+          transform:"translate(-50%, -50%)",
+          color: analyzeStatus === "analyzing" ? C.muted : C.edge,
+          fontSize:13, textAlign:"center", display:"flex", alignItems:"center", gap:10,
+        }}>
+          {analyzeStatus === "analyzing"
+            ? <><span style={{ animation:"spin 1s linear infinite", display:"inline-block", fontSize:16 }}>◌</span> analyzing...</>
+            : "listening..."
+          }
+        </div>
+      )}
+
+      {/* Mic button — bottom right */}
+      <button onClick={toggleMic} style={{
+        position:"absolute", bottom:28, right:28,
+        width:68, height:68, borderRadius:"50%",
+        background: micActive ? "#14532d" : "#1e293b",
+        border:`2px solid ${micActive ? "#22c55e" : C.edge}`,
+        color: micActive ? "#6ee7b7" : C.muted,
+        fontSize:28, cursor:"pointer",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        boxShadow: micActive ? "0 0 20px #22c55e50" : "none",
+        transition:"all .25s",
+      }}>🎙</button>
+
+      {/* Analyze button — bottom left, subtle */}
+      <button onClick={() => runAnalysis("manual")} style={{
+        position:"absolute", bottom:40, left:28,
+        padding:"10px 18px", background:"#1e3a5f", border:`1px solid #3b82f6`,
+        borderRadius:4, color:"#93c5fd", fontSize:10, fontFamily:"inherit",
+        letterSpacing:2, cursor:"pointer",
+      }}>ANALYZE NOW</button>
+    </div>
+  );
+
+  // ── LIVE (dashboard) ──────────────────────────────────────────────────
   return (
     <div style={{
       height:"100vh", background:C.bg, color:C.body,
       fontFamily:"'IBM Plex Mono','Courier New',monospace",
       display:"grid",
-      gridTemplateRows:"56px 1fr auto auto",
+      gridTemplateRows: isPortrait ? "48px 1fr auto auto" : "56px 1fr auto auto",
       gridTemplateColumns: isTablet ? (showSignals ? "1fr 280px" : "1fr 0px") : "1fr 320px",
       overflow:"hidden",
     }}>
@@ -909,6 +1050,10 @@ export default function InterviewCopilot() {
         <div style={{ width:1, height:18, background:C.edge }}/>
         <span style={{ fontSize:11, color:C.muted }}>{candidateName} · {roleTitle}</span>
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+          <button onClick={() => setViewMode("monitor")} style={{
+            padding:"6px 12px", background:"transparent", border:`1px solid ${C.edge}`,
+            borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
+          }}>◉ MONITOR</button>
           {isTablet && (
             <button onClick={() => setShowSignals(p => !p)} style={{
               padding:"6px 12px", background: showSignals ? "#1c1c2a" : "transparent",
@@ -1114,10 +1259,10 @@ export default function InterviewCopilot() {
           onChange={e => setInputText(e.target.value)}
           onKeyDown={handleInputKeyDown}
           placeholder={`Type ${inputSpeaker === "INTERVIEWER" ? "your question" : "candidate's response"}... (Enter to submit)`}
-          rows={3}
+          rows={isPortrait ? 2 : 3}
           style={{
             flex:1, background:C.bg, border:`1px solid ${C.edge}`,
-            borderRadius:6, color:C.body, padding:"12px 14px",
+            borderRadius:6, color:C.body, padding: isPortrait ? "8px 12px" : "12px 14px",
             fontSize:15, fontFamily:"inherit", lineHeight:1.5,
           }}
         />
@@ -1152,7 +1297,7 @@ export default function InterviewCopilot() {
         flexDirection:"column",
         justifyContent:"flex-end",
         gap:3,
-        maxHeight:72,
+        maxHeight: isPortrait ? 52 : 72,
       }}>
         {transcript.length === 0 && (
           <span style={{ fontSize:11, color:C.muted }}>Type transcript entries above to begin...</span>
