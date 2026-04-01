@@ -310,8 +310,6 @@ export default function InterviewCopilot() {
     if (tickerRef.current) tickerRef.current.scrollTop = tickerRef.current.scrollHeight;
   }, [transcript]);
 
-  useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
-
   // ── MIC DEVICE ENUMERATION ──────────────────────────────────────────────
   useEffect(() => {
     if (phase !== "setup") return;
@@ -325,7 +323,9 @@ export default function InterviewCopilot() {
         setAudioDevices(inputs);
         // Restore saved preference, else auto-pick: prefer built-in, exclude iPhone/BT
         const saved = localStorage.getItem("disco-mic-device");
-        const savedExists = saved && inputs.some(d => d.deviceId === saved);
+        const savedDevice = inputs.find(d => d.deviceId === saved);
+        // Don't restore saved pref if the saved device is an excluded type (iPhone, Bluetooth, etc.)
+        const savedExists = saved && savedDevice && !/iphone|ipad|bluetooth|airpods|continuity/i.test(savedDevice.label || "");
         const pick = savedExists
           ? saved
           : (inputs.find(d => /built.?in|macbook pro|macbook air|internal/i.test(d.label))
@@ -439,6 +439,10 @@ export default function InterviewCopilot() {
       }
     }
   }, [transcript, candidateName, roleTitle, objectives, enabledSignals, analyzeStatus]);
+
+  // Keep ref always current so setInterval/ws handlers avoid stale closures
+  // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
+  useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
 
   // Returns a contextual note string for a notable signal
   function getSummaryForSignal(type, score, summary) {
@@ -613,7 +617,8 @@ export default function InterviewCopilot() {
 
     // ── START ────────────────────────────────────────────────────────────────
     try {
-      const audioConstraint = micDeviceIdRef.current ? { deviceId: { exact: micDeviceIdRef.current } } : true;
+      // Use "ideal" (not "exact") so a stale/unavailable deviceId falls back to any mic instead of hard-failing
+      const audioConstraint = micDeviceIdRef.current ? { deviceId: { ideal: micDeviceIdRef.current } } : true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
       const ws = new window.WebSocket(`${WS_BASE}/mic`);
       micWsRef.current = ws;
