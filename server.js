@@ -15,15 +15,67 @@ const PORT = process.env.PORT || 3001;
 // ─────────────────────────────────────────────────────────────────────────────
 // SYSTEM PROMPT BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
+function isDieselRole(roleTitle = "") {
+  return /diesel|mechanic|technician|tech\b|heavy.?truck|fleet.?maint/i.test(roleTitle);
+}
+
+const DIESEL_DOMAIN_CONTEXT = `
+DOMAIN EXPERTISE — DIESEL MECHANIC / TECHNICIAN:
+You have deep knowledge of heavy-duty diesel systems. Use this to score knowledge accuracy and generate targeted probes.
+
+TECHNICAL BENCHMARKS (what a competent candidate should know):
+
+Engine & Diagnostics:
+- Uses J1939/SAE fault code format (SPN + FMI), not just "check engine light"
+- Names specific scan tools: Cummins INSITE, Detroit DiagnosticLink, Allison DOC, Bendix ACom, Jaltest
+- Distinguishes root cause from symptom (e.g., "low rail pressure fault — checked CP4 pump vs lift pump first")
+- Knows common failure patterns: injector o-ring leaks, EGR cooler failures, coolant in oil
+
+DPF / Aftertreatment:
+- Knows passive vs active vs forced/parked regen and when each applies
+- Soot load % triggers: typically active regen >40%, parked regen >85%
+- Understands ash buildup is NOT cleared by regen — requires physical cleaning (~every 150K-300K mi depending on load)
+- Red flag: believes regeneration cleans ash, or doesn't know the difference between soot and ash
+- Knows DPF cleaning methods: bake-and-blow, pneumatic cleaning, replacement thresholds
+
+DEF / SCR System:
+- Knows DEF is 32.5% urea / 67.5% deionized water, freezes at 12°F
+- Understands NOx sensor role, DEF doser/injector, and SCR catalyst
+- Common faults: DEF quality fault (contamination), doser crystallization, NOx sensor failure
+- Knows derate/limp-home behavior when SCR system faults go unresolved
+
+Air Brakes (FMCSR § 393):
+- Brake adjustment: pushrod stroke limit is typically 1.75" at 90 psi (Type 30 chamber)
+- Knows difference between automatic slack adjusters (ASA) and manual, and when manual adjustment is still needed
+- Spring brake hold-off pressure: ~60 psi; below that, spring brakes apply
+- Can describe pre-trip air brake inspection: build-up rate, governor cut-in/cut-out (~100-125 psi), low-pressure warning (~60 psi)
+- Knows S-cam vs disc brake systems, dust shield inspection, drum wear limits
+
+Preventive Maintenance:
+- Knows typical OTR oil drain intervals: 15K-25K mi with oil analysis, or per OEM spec
+- References SCA/DCA (supplemental coolant additive) levels for wet-sleeve engines
+- Understands DVIR (Driver Vehicle Inspection Report) and how shop tickets link to driver defects
+- Can name filter types and intervals (fuel/water separator, oil, air, DPF)
+
+KNOWLEDGE SCORING for this role:
+- 80+: Correct system-specific terms, actual spec numbers, clear distinction of root cause vs symptom, names real tools
+- 60-79: Correct general direction but vague on specs ("I've done DPF regens", "I know air brakes")
+- 40-59: Textbook-level only, no operational detail, conflates systems or uses wrong terminology
+- <40: Wrong facts, incorrect procedures, or clearly has not worked on these systems hands-on
+`;
+
 function buildSystemPrompt(config) {
   const { candidateName, roleTitle, objectives, enabledSignals, mindset = "interviewer" } = config;
   const isSales = mindset === "sales";
+  const isDiesel = !isSales && isDieselRole(roleTitle);
 
   const signalInstructions = {
     deception:            "deception_risk: 0-100. Look for hedging language, vague answers to direct questions, inconsistencies, over-qualification, topic redirection, and unusually brief answers to important questions.",
     sincerity:            "sincerity: 0-100. Look for specific personal examples, unprompted elaboration, consistency of emotional tone, direct 'I' statements vs. passive constructions.",
     engagement:           "engagement: 0-100. Look for energy in responses, elaboration beyond what was asked, enthusiasm markers, and contrast with flatter answers.",
-    knowledge:            "knowledge: 0-100. Look for specific numbers, named technologies used correctly in context, operational vs. textbook detail, and appropriate uncertainty.",
+    knowledge:            isDiesel
+      ? "knowledge: 0-100. Score per DIESEL DOMAIN EXPERTISE benchmarks above. 80+ = correct specs + real tool names. 60-79 = correct but vague. <40 = wrong facts or clearly not hands-on."
+      : "knowledge: 0-100. Look for specific numbers, named technologies used correctly in context, operational vs. textbook detail, and appropriate uncertainty.",
     stress:               "stress: 0-100. Look for filler word clusters ('um', 'uh', 'kind of', 'sort of'), sentence restarts, run-on sentences, and abrupt over-brevity.",
     avoidance:            "avoidance: 0-100. Look for answers that reframe the question, pivot to safer territory, answer adjacent questions instead of the one asked.",
     latency:              "latency_flag: true/false. Flag if any answer appears unusually short relative to question complexity.",
@@ -72,10 +124,17 @@ function buildSystemPrompt(config) {
   - Hypothetical: "How would you handle that differently today?"
 - Bad probes: vague ("tell me more"), topic-based ("ask about leadership"), rephrasing what was already asked.
 - Do NOT probe topics already well-covered in this transcript.
-- Focus on the most important unverified claim or gap in the last 2-3 exchanges.`;
+- Focus on the most important unverified claim or gap in the last 2-3 exchanges.${isDiesel ? `
+- DIESEL-SPECIFIC probe types:
+  - Technical verification: "Walk me through exactly how you diagnose a DPF that won't complete a forced regen."
+  - Spec challenge: "What pushrod stroke limit do you use when adjusting brakes at 90 psi?"
+  - Tool check: "What scan tool do you use for Cummins engines, and what's the last fault you diagnosed with it?"
+  - Procedure depth: "Take me through your process when a driver reports low power and you're seeing a NOx sensor fault."
+  - Distinction probe: "What's the difference between soot load and ash load in a DPF, and how do you address each?"
+- Prioritize probing any technical claim that lacks a specific procedure, spec number, or tool name.` : ""}`;
 
   return `${roleDescription}
-
+${isDiesel ? DIESEL_DOMAIN_CONTEXT : ""}
 ${contextSection}
 
 YOUR JOB:

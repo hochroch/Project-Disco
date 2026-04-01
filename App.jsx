@@ -106,6 +106,19 @@ const PLAYBOOK_TEMPLATES = [
     enabledSignals: MINDSETS.sales.signals,
     objectives: MINDSETS.sales.objectives,
   },
+  {
+    name: "Diesel Mechanic",
+    mindset: "interviewer",
+    roleTitle: "Diesel Mechanic / Technician",
+    enabledSignals: { followup:true, deception:true, sincerity:true, engagement:true, knowledge:true, stress:false, avoidance:true, latency:true, confidence:true, cultural:false, preparation:false, rapport:false, buying_intent:false, objection_detected:false, closing_opportunity:false },
+    objectives: [
+      "Confirm hands-on diagnostic experience (not just parts-swapping)",
+      "Assess DPF/DEF aftertreatment knowledge and regen procedures",
+      "Verify air brake inspection and adjustment competency",
+      "Gauge familiarity with diagnostic scan tools (INSITE, DiagnosticLink, etc.)",
+      "Evaluate preventive maintenance discipline and record-keeping habits",
+    ],
+  },
 ];
 
 // ── SMALL COMPONENTS ──────────────────────────────────────────────────────
@@ -209,9 +222,19 @@ export default function InterviewCopilot() {
   const [savedPlaybooks, setSavedPlaybooks] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem("copilot-playbooks") || "null");
-      if (stored?.length > 0) return stored;
-      localStorage.setItem("copilot-playbooks", JSON.stringify(PLAYBOOK_TEMPLATES));
-      return PLAYBOOK_TEMPLATES;
+      if (!stored?.length) {
+        localStorage.setItem("copilot-playbooks", JSON.stringify(PLAYBOOK_TEMPLATES));
+        return PLAYBOOK_TEMPLATES;
+      }
+      // Merge in any new default templates not already present by name
+      const storedNames = new Set(stored.map(p => p.name));
+      const missing = PLAYBOOK_TEMPLATES.filter(t => !storedNames.has(t.name));
+      if (missing.length > 0) {
+        const merged = [...stored, ...missing];
+        localStorage.setItem("copilot-playbooks", JSON.stringify(merged));
+        return merged;
+      }
+      return stored;
     } catch { return PLAYBOOK_TEMPLATES; }
   });
   const [selectedPlaybook, setSelectedPlaybook] = useState("");
