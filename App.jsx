@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3001`;
-const WS_BASE  = API_BASE.replace(/^http/, "ws");
+const API_BASE  = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3001`;
+const WS_BASE   = API_BASE.replace(/^http/, "ws");
+
+// Werner Backbone Supabase — anon key is public, safe to ship
+const SUPA = createClient(
+  "https://dtazswxluhmdwwibgawn.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0YXpzd3hsdWhtZHd3aWJnYXduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MTI3MTAsImV4cCI6MjA4Njk4ODcxMH0.gzR_uBz4ooctK3IxemLkknLhn6kusMP99TcnL57Jlgs"
+);
+const DISCO_ALLOWED_ROLES = new Set(["admin", "vice_president", "manager", "office", "disco"]);
 
 // ── COLOR SYSTEM ──────────────────────────────────────────────────────────
 const C = {
@@ -213,30 +221,27 @@ export default function InterviewCopilot() {
   const isPortrait = winH > winW;
   const [showSignals, setShowSignals] = useState(true);
 
+  // ── AUTH ─────────────────────────────────────────────────────────────────
+  const [supaUser, setSupaUser]     = useState(null);
+  const [userRole, setUserRole]     = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError]   = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+
+  // ── HISTORY ───────────────────────────────────────────────────────────────
+  const [history, setHistory]           = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historySession, setHistorySession] = useState(null); // expanded session detail
+  const sessionStartRef = useRef(null);
+
   const [phase, setPhase]       = useState("setup");
   const [candidateName, setCandidateName] = useState("Alex Chen");
   const [roleTitle, setRoleTitle]         = useState("Senior Backend Engineer");
   const [objectives, setObjectives]       = useState(OBJECTIVES_DEFAULT.map(t => ({ text:t, done:false })));
   const [mindset, setMindset]             = useState("interviewer");
   const [enabledSignals, setEnabledSignals] = useState(MINDSETS.interviewer.signals);
-  const [savedPlaybooks, setSavedPlaybooks] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("copilot-playbooks") || "null");
-      if (!stored?.length) {
-        localStorage.setItem("copilot-playbooks", JSON.stringify(PLAYBOOK_TEMPLATES));
-        return PLAYBOOK_TEMPLATES;
-      }
-      // Merge in any new default templates not already present by name
-      const storedNames = new Set(stored.map(p => p.name));
-      const missing = PLAYBOOK_TEMPLATES.filter(t => !storedNames.has(t.name));
-      if (missing.length > 0) {
-        const merged = [...stored, ...missing];
-        localStorage.setItem("copilot-playbooks", JSON.stringify(merged));
-        return merged;
-      }
-      return stored;
-    } catch { return PLAYBOOK_TEMPLATES; }
-  });
+  const [savedPlaybooks, setSavedPlaybooks] = useState([]);
   const [selectedPlaybook, setSelectedPlaybook] = useState("");
   const [playbookName, setPlaybookName]         = useState("");
 
@@ -290,6 +295,81 @@ export default function InterviewCopilot() {
     clearTimeout(probeTimerRef.current);
     clearTimeout(signalTimerRef.current);
   }, []);
+
+  // ── AUTH — check session on mount, listen for changes ───────────────────
+  useEffect(() => {
+    SUPA.auth.getSession().then(({ data: { session } }) => {
+      if (session) { setSupaUser(session.user); fetchUserRole(session.user.id); }
+      else setAuthLoading(false);
+    });
+    const { data: { subscription } } = SUPA.auth.onAuthStateChange((_evt, session) => {
+      if (session) { setSupaUser(session.user); fetchUserRole(session.user.id); }
+      else { setSupaUser(null); setUserRole(null); setAuthLoading(false); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function fetchUserRole(userId) {
+    const { data } = await SUPA.from("users").select("role").eq("user_id", userId).maybeSingle();
+    const role = data?.role || "disco";
+    if (!DISCO_ALLOWED_ROLES.has(role)) {
+      await SUPA.auth.signOut();
+      setAuthError("Your account does not have Disco access.");
+      setAuthLoading(false);
+      return;
+    }
+    setUserRole(role);
+    setAuthLoading(false);
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setAuthLoading(true); setAuthError("");
+    const { error } = await SUPA.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
+    if (error) { setAuthError(error.message); setAuthLoading(false); }
+  }
+
+  async function handleSignOut() {
+    await SUPA.auth.signOut();
+    setPhase("setup");
+  }
+
+  // ── PLAYBOOKS — load from DB when user logs in ────────────────────────────
+  useEffect(() => {
+    if (!supaUser) return;
+    loadPlaybooks();
+  }, [supaUser]);
+
+  async function loadPlaybooks() {
+    const { data } = await SUPA.from("disco_playbooks")
+      .select("*").order("created_at", { ascending: true });
+    if (data && data.length > 0) {
+      setSavedPlaybooks(data.map(p => ({
+        _id: p.id, _createdBy: p.created_by,
+        name: p.name, mindset: p.mindset, roleTitle: p.role_title,
+        enabledSignals: p.enabled_signals, objectives: p.objectives,
+      })));
+    } else {
+      // First login — seed default templates for this user
+      const rows = PLAYBOOK_TEMPLATES.map(t => ({
+        created_by: supaUser.id, created_by_email: supaUser.email,
+        name: t.name, mindset: t.mindset, role_title: t.roleTitle,
+        enabled_signals: t.enabledSignals, objectives: t.objectives, is_shared: true,
+      }));
+      await SUPA.from("disco_playbooks").insert(rows);
+      loadPlaybooks();
+    }
+  }
+
+  async function loadHistory() {
+    setHistoryLoading(true);
+    const { data: sessions } = await SUPA.from("disco_sessions")
+      .select("*, disco_session_results(*)")
+      .order("started_at", { ascending: false })
+      .limit(100);
+    setHistory(sessions || []);
+    setHistoryLoading(false);
+  }
 
   // Monitor mode — surface latest probe/signal, auto-dismiss
   useEffect(() => {
@@ -492,27 +572,31 @@ export default function InterviewCopilot() {
     setSelectedPlaybook(name);
   }
 
-  function savePlaybook() {
+  async function savePlaybook() {
     const name = playbookName.trim();
-    if (!name) return;
-    const pb = {
-      name,
-      mindset,
-      roleTitle,
-      enabledSignals,
+    if (!name || !supaUser) return;
+    const existing = savedPlaybooks.find(p => p.name === name);
+    const row = {
+      created_by: supaUser.id, created_by_email: supaUser.email,
+      name, mindset, role_title: roleTitle,
+      enabled_signals: enabledSignals,
       objectives: objectives.map(o => o.text),
+      is_shared: true, updated_at: new Date().toISOString(),
     };
-    const updated = [...savedPlaybooks.filter(p => p.name !== name), pb];
-    localStorage.setItem("copilot-playbooks", JSON.stringify(updated));
-    setSavedPlaybooks(updated);
+    if (existing?._id) {
+      await SUPA.from("disco_playbooks").update(row).eq("id", existing._id);
+    } else {
+      await SUPA.from("disco_playbooks").insert(row);
+    }
+    await loadPlaybooks();
     setSelectedPlaybook(name);
     setPlaybookName("");
   }
 
-  function deletePlaybook(name) {
-    const updated = savedPlaybooks.filter(p => p.name !== name);
-    localStorage.setItem("copilot-playbooks", JSON.stringify(updated));
-    setSavedPlaybooks(updated);
+  async function deletePlaybook(name) {
+    const pb = savedPlaybooks.find(p => p.name === name);
+    if (pb?._id) await SUPA.from("disco_playbooks").delete().eq("id", pb._id);
+    await loadPlaybooks();
     if (selectedPlaybook === name) setSelectedPlaybook("");
   }
 
@@ -538,6 +622,7 @@ export default function InterviewCopilot() {
 
   // ── SESSION CONTROLS ─────────────────────────────────────────────────────
   function startSession() {
+    sessionStartRef.current = new Date().toISOString();
     setPhase("live");
     setTranscript([]); setProbes([]); setSignals([]);
     setDismissed(new Set()); setScores({}); setElapsed(0);
@@ -582,12 +667,38 @@ export default function InterviewCopilot() {
         }),
       });
       const data = await res.json();
-      if (data.success) setDebrief(data.debrief);
+      if (data.success) {
+        setDebrief(data.debrief);
+        // Auto-save session to DB (non-blocking)
+        saveSessionToDB(transcript, scores, data.debrief).catch(() => {});
+      }
     } catch (err) {
       setAnalyzeError(err.message);
     } finally {
       setDebriefLoading(false);
     }
+  }
+
+  async function saveSessionToDB(txScript, scrs, deb) {
+    if (!supaUser) return;
+    const { data: session, error } = await SUPA.from("disco_sessions").insert({
+      user_id: supaUser.id,
+      user_email: supaUser.email,
+      candidate_name: candidateName,
+      role_title: roleTitle,
+      mindset,
+      playbook_name: selectedPlaybook || null,
+      started_at: sessionStartRef.current,
+      ended_at: new Date().toISOString(),
+      duration_seconds: elapsed,
+    }).select().single();
+    if (error || !session) return;
+    await SUPA.from("disco_session_results").insert({
+      session_id: session.id,
+      transcript: txScript,
+      final_scores: scrs,
+      debrief: deb || {},
+    });
   }
 
   // ── TRANSCRIPT INPUT ─────────────────────────────────────────────────────
@@ -754,14 +865,145 @@ export default function InterviewCopilot() {
   const activeProbes  = probes.filter(p => !dismissed.has(p.id));
   const activeSignals = signals.filter(s => !dismissed.has(s.id));
 
+  // ── AUTH GATE ─────────────────────────────────────────────────────────────
+  if (authLoading) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'IBM Plex Mono','Courier New',monospace" }}>
+      <div style={{ color:C.muted, fontSize:11, letterSpacing:4 }}>AUTHENTICATING...</div>
+    </div>
+  );
+
+  if (!supaUser) return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'IBM Plex Mono','Courier New',monospace" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ width:"100%", maxWidth:380, padding:32, background:C.surface, border:`1px solid ${C.edge}`, borderRadius:6, animation:"fadeUp .4s ease" }}>
+        <div style={{ fontSize:9, letterSpacing:6, color:C.muted, marginBottom:8 }}>INTERVIEW INTELLIGENCE SYSTEM</div>
+        <h1 style={{ fontSize:22, fontWeight:700, color:C.bright, margin:"0 0 28px", letterSpacing:-1 }}>Sign In</h1>
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:6 }}>EMAIL</div>
+            <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} required autoFocus
+              style={{ width:"100%", padding:"10px 12px", background:C.surfaceAlt, border:`1px solid ${C.edge}`, borderRadius:3, color:C.bright, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <div style={{ marginBottom:22 }}>
+            <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:6 }}>PASSWORD</div>
+            <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required
+              style={{ width:"100%", padding:"10px 12px", background:C.surfaceAlt, border:`1px solid ${C.edge}`, borderRadius:3, color:C.bright, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+          </div>
+          {authError && <div style={{ fontSize:11, color:"#f87171", marginBottom:14 }}>⚠ {authError}</div>}
+          <button type="submit" style={{ width:"100%", padding:"11px", background:"#1d4ed8", border:"none", borderRadius:3, color:"#fff", fontSize:11, letterSpacing:3, fontFamily:"inherit", cursor:"pointer", fontWeight:600 }}>
+            SIGN IN
+          </button>
+        </form>
+        <div style={{ marginTop:20, fontSize:10, color:C.muted, textAlign:"center" }}>
+          Contact your admin for account access.
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── HISTORY ───────────────────────────────────────────────────────────────
+  if (phase === "history") return (
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:"32px 24px" }}>
+      <style>{GLOBAL_STYLES}</style>
+      <div style={{ maxWidth:960, margin:"0 auto" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:28, borderBottom:`1px solid ${C.edge}`, paddingBottom:20 }}>
+          <div>
+            <div style={{ fontSize:9, letterSpacing:6, color:C.muted, marginBottom:6 }}>INTERVIEW INTELLIGENCE SYSTEM</div>
+            <h1 style={{ fontSize:24, fontWeight:700, color:C.bright, margin:0, letterSpacing:-1 }}>Session History</h1>
+          </div>
+          <button onClick={() => setPhase("setup")} style={{ padding:"8px 20px", background:"transparent", border:`1px solid ${C.edge}`, borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:3, cursor:"pointer" }}>← BACK</button>
+        </div>
+
+        {historyLoading ? (
+          <div style={{ color:C.muted, fontSize:11, letterSpacing:3 }}>LOADING...</div>
+        ) : history.length === 0 ? (
+          <div style={{ color:C.muted, fontSize:13, textAlign:"center", paddingTop:60 }}>No sessions recorded yet.</div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            {history.map(s => {
+              const isOpen = historySession?.id === s.id;
+              const result = s.disco_session_results?.[0];
+              const dur = s.duration_seconds ? `${Math.floor(s.duration_seconds/60)}m ${s.duration_seconds%60}s` : "—";
+              const dateStr = new Date(s.started_at).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit" });
+              return (
+                <div key={s.id}>
+                  <div onClick={() => setHistorySession(isOpen ? null : s)}
+                    style={{ display:"grid", gridTemplateColumns:"1fr 1fr 120px 90px 30px", alignItems:"center", gap:16, padding:"14px 18px", background:isOpen ? C.surfaceAlt : C.surface, border:`1px solid ${isOpen ? "#3b82f6" : C.edge}`, borderRadius:isOpen ? "4px 4px 0 0" : 4, cursor:"pointer", transition:"all .15s" }}>
+                    <div>
+                      <div style={{ color:C.bright, fontWeight:600, fontSize:13 }}>{s.candidate_name || "—"}</div>
+                      <div style={{ color:C.muted, fontSize:10, marginTop:2 }}>{s.role_title || "—"}</div>
+                    </div>
+                    <div style={{ color:C.muted, fontSize:11 }}>{dateStr}</div>
+                    <div style={{ color:C.muted, fontSize:11 }}>{s.user_email?.split("@")[0]}</div>
+                    <div style={{ color:C.muted, fontSize:11 }}>{dur}</div>
+                    <div style={{ color:C.muted, fontSize:14 }}>{isOpen ? "▲" : "▼"}</div>
+                  </div>
+                  {isOpen && result && (
+                    <div style={{ background:C.surfaceAlt, border:`1px solid #3b82f6`, borderTop:"none", borderRadius:"0 0 4px 4px", padding:24 }}>
+                      {result.debrief?.verdict && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:9, letterSpacing:4, color:C.muted, marginBottom:8 }}>VERDICT</div>
+                          <div style={{ fontSize:13, color:C.bright, fontWeight:600 }}>{result.debrief.verdict}</div>
+                          {result.debrief.headline && <div style={{ fontSize:11, color:C.body, marginTop:4 }}>{result.debrief.headline}</div>}
+                        </div>
+                      )}
+                      {result.final_scores && Object.keys(result.final_scores).length > 0 && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:9, letterSpacing:4, color:C.muted, marginBottom:10 }}>SIGNAL SCORES</div>
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                            {Object.entries(result.final_scores).map(([k, v]) => (
+                              <div key={k} style={{ padding:"4px 10px", background:C.surface, border:`1px solid ${C.edge}`, borderRadius:3, fontSize:10, color:C.body }}>
+                                {k}: <span style={{ color: v >= 65 ? "#6ee7b7" : v <= 40 ? "#f87171" : C.body, fontWeight:600 }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {result.debrief?.observations?.length > 0 && (
+                        <div style={{ marginBottom:20 }}>
+                          <div style={{ fontSize:9, letterSpacing:4, color:C.muted, marginBottom:8 }}>OBSERVATIONS</div>
+                          {result.debrief.observations.map((o, i) => (
+                            <div key={i} style={{ fontSize:11, color:C.body, marginBottom:4, paddingLeft:12, borderLeft:`2px solid ${C.edge}` }}>{o}</div>
+                          ))}
+                        </div>
+                      )}
+                      {result.transcript?.length > 0 && (
+                        <details style={{ marginTop:8 }}>
+                          <summary style={{ fontSize:9, letterSpacing:4, color:C.muted, cursor:"pointer" }}>TRANSCRIPT ({result.transcript.length} lines)</summary>
+                          <div style={{ marginTop:12, maxHeight:300, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
+                            {result.transcript.map((t, i) => (
+                              <div key={i} style={{ fontSize:11 }}>
+                                <span style={{ color: t.speaker === "INTERVIEWER" ? "#38bdf8" : "#6ee7b7", marginRight:8 }}>{t.speaker}</span>
+                                <span style={{ color:C.body }}>{t.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   // ── SETUP ──────────────────────────────────────────────────────────────
   if (phase === "setup") return (
     <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:"32px 24px" }}>
       <style>{GLOBAL_STYLES}</style>
       <div style={{ maxWidth:800, margin:"0 auto", animation:"fadeUp .4s ease" }}>
         <div style={{ marginBottom:32, borderBottom:`1px solid ${C.edge}`, paddingBottom:20 }}>
-          <div style={{ fontSize:9, letterSpacing:6, color:C.muted, marginBottom:10 }}>
-            INTERVIEW INTELLIGENCE SYSTEM · PRE-SESSION BRIEF
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <div style={{ fontSize:9, letterSpacing:6, color:C.muted }}>INTERVIEW INTELLIGENCE SYSTEM · PRE-SESSION BRIEF</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <span style={{ fontSize:10, color:C.muted }}>{supaUser?.email}</span>
+              <button onClick={() => { loadHistory(); setPhase("history"); }} style={{ padding:"4px 12px", background:"transparent", border:`1px solid ${C.edge}`, borderRadius:3, color:C.muted, fontSize:9, letterSpacing:2, fontFamily:"inherit", cursor:"pointer" }}>HISTORY</button>
+              <button onClick={handleSignOut} style={{ padding:"4px 12px", background:"transparent", border:`1px solid ${C.edge}`, borderRadius:3, color:C.muted, fontSize:9, letterSpacing:2, fontFamily:"inherit", cursor:"pointer" }}>SIGN OUT</button>
+            </div>
           </div>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <h1 style={{ fontSize:28, fontWeight:700, margin:0, color:C.bright, letterSpacing:-1 }}>Configure Session</h1>
