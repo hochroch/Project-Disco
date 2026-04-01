@@ -315,22 +315,30 @@ export default function InterviewCopilot() {
     if (phase !== "setup") return;
     async function loadDevices() {
       try {
-        // Request permission so device labels are populated (don't keep this stream)
+        // Get permission so device labels are populated.
+        // CRITICAL: enumerate BEFORE stopping the stream — many browsers clear labels on stop()
         const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-        tmp.getTracks().forEach(t => t.stop());
         const all = await navigator.mediaDevices.enumerateDevices();
+        tmp.getTracks().forEach(t => t.stop()); // stop AFTER enumerate so labels are populated
+
         const inputs = all.filter(d => d.kind === "audioinput");
         setAudioDevices(inputs);
-        // Restore saved preference, else auto-pick: prefer built-in, exclude iPhone/BT
+
+        const isPhone = d => /iphone|ipad|android|bluetooth|airpods|continuity/i.test(d.label || "");
+        const isBuiltIn = d => /built.?in|macbook pro|macbook air|macbook|internal|laptop/i.test(d.label || "");
+
+        // Restore saved preference only if the saved device isn't a phone/wireless mic
         const saved = localStorage.getItem("disco-mic-device");
         const savedDevice = inputs.find(d => d.deviceId === saved);
-        // Don't restore saved pref if the saved device is an excluded type (iPhone, Bluetooth, etc.)
-        const savedExists = saved && savedDevice && !/iphone|ipad|bluetooth|airpods|continuity/i.test(savedDevice.label || "");
-        const pick = savedExists
+        const savedOk = saved && savedDevice && !isPhone(savedDevice);
+
+        const pick = savedOk
           ? saved
-          : (inputs.find(d => /built.?in|macbook pro|macbook air|internal/i.test(d.label))
-            || inputs.find(d => !/iphone|ipad|bluetooth|airpods|continuity/i.test(d.label))
-            || inputs[0])?.deviceId || "";
+          : (inputs.find(d => isBuiltIn(d))           // prefer explicit built-in match
+            || inputs.find(d => d.label && !isPhone(d)) // labeled non-phone device
+            || inputs.find(d => !isPhone(d))            // any non-phone device
+            || inputs[0])?.deviceId || "";              // absolute last resort
+
         setMicDeviceId(pick);
         micDeviceIdRef.current = pick;
       } catch { /* permission denied — will surface when session starts */ }
