@@ -273,6 +273,7 @@ export default function InterviewCopilot() {
   const analyzeRef      = useRef(null); // abort controller
   const periodicRef     = useRef(null);
   const lastAnalyzedRef = useRef(0);    // timestamp of last analysis start (for utterance_end cooldown)
+  const micDeviceIdRef  = useRef("");   // always-current device id (avoids stale closure in toggleMic)
   const micWsRef        = useRef(null); // WebSocket to /mic relay
   const recorderRef     = useRef(null); // MediaRecorder instance
   const interimRef      = useRef("");   // accumulates interim transcript text
@@ -313,15 +314,23 @@ export default function InterviewCopilot() {
     if (phase !== "setup") return;
     async function loadDevices() {
       try {
-        // Request permission first so device labels are populated
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Request permission so device labels are populated (don't keep this stream)
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach(t => t.stop());
         const all = await navigator.mediaDevices.enumerateDevices();
         const inputs = all.filter(d => d.kind === "audioinput");
         setAudioDevices(inputs);
-        // Auto-select built-in mic if available, otherwise first device
-        const builtin = inputs.find(d => /built.?in|macbook|internal/i.test(d.label));
-        setMicDeviceId(builtin?.deviceId || inputs[0]?.deviceId || "");
-      } catch { /* mic permission denied — will surface when session starts */ }
+        // Restore saved preference, else auto-pick: prefer built-in, exclude iPhone/BT
+        const saved = localStorage.getItem("disco-mic-device");
+        const savedExists = saved && inputs.some(d => d.deviceId === saved);
+        const pick = savedExists
+          ? saved
+          : (inputs.find(d => /built.?in|macbook pro|macbook air|internal/i.test(d.label))
+            || inputs.find(d => !/iphone|ipad|bluetooth|airpods|continuity/i.test(d.label))
+            || inputs[0])?.deviceId || "";
+        setMicDeviceId(pick);
+        micDeviceIdRef.current = pick;
+      } catch { /* permission denied — will surface when session starts */ }
     }
     loadDevices();
   }, [phase]);
@@ -601,7 +610,7 @@ export default function InterviewCopilot() {
 
     // ── START ────────────────────────────────────────────────────────────────
     try {
-      const audioConstraint = micDeviceId ? { deviceId: { exact: micDeviceId } } : true;
+      const audioConstraint = micDeviceIdRef.current ? { deviceId: { exact: micDeviceIdRef.current } } : true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
       const ws = new window.WebSocket(`${WS_BASE}/mic`);
       micWsRef.current = ws;
@@ -817,12 +826,16 @@ export default function InterviewCopilot() {
           </div>
         </div>
 
-        {audioDevices.length > 1 && (
+        {audioDevices.length > 0 && (
           <div style={{ marginTop:16, display:"flex", alignItems:"center", gap:10 }}>
             <span style={{ fontSize:9, letterSpacing:2, color:C.muted, flexShrink:0 }}>🎙 MIC</span>
             <select
               value={micDeviceId}
-              onChange={e => setMicDeviceId(e.target.value)}
+              onChange={e => {
+                setMicDeviceId(e.target.value);
+                micDeviceIdRef.current = e.target.value;
+                localStorage.setItem("disco-mic-device", e.target.value);
+              }}
               style={{
                 flex:1, padding:"6px 10px", background:C.surfaceAlt,
                 border:`1px solid ${C.edge}`, borderRadius:3,
