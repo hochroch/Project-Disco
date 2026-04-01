@@ -638,10 +638,10 @@ export default function InterviewCopilot() {
 
     timerRef.current = setInterval(() => setElapsed(e => e+1), 1000);
 
-    // Periodic analysis every 30 seconds — use ref to avoid stale closure
+    // Periodic analysis every 20 seconds — use ref to avoid stale closure
     periodicRef.current = setInterval(() => {
       runAnalysisRef.current?.("periodic");
-    }, 30000);
+    }, 20000);
 
     // Auto-start mic
     toggleMic();
