@@ -274,6 +274,7 @@ export default function InterviewCopilot() {
   const periodicRef     = useRef(null);
   const lastAnalyzedRef = useRef(0);    // timestamp of last analysis start (for utterance_end cooldown)
   const micDeviceIdRef  = useRef("");   // always-current device id (avoids stale closure in toggleMic)
+  const runAnalysisRef  = useRef(null); // always-current runAnalysis (avoids stale closure in setInterval/ws)
   const micWsRef        = useRef(null); // WebSocket to /mic relay
   const recorderRef     = useRef(null); // MediaRecorder instance
   const interimRef      = useRef("");   // accumulates interim transcript text
@@ -308,6 +309,8 @@ export default function InterviewCopilot() {
   useEffect(() => {
     if (tickerRef.current) tickerRef.current.scrollTop = tickerRef.current.scrollHeight;
   }, [transcript]);
+
+  useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
 
   // ── MIC DEVICE ENUMERATION ──────────────────────────────────────────────
   useEffect(() => {
@@ -538,9 +541,9 @@ export default function InterviewCopilot() {
 
     timerRef.current = setInterval(() => setElapsed(e => e+1), 1000);
 
-    // Periodic analysis every 30 seconds
+    // Periodic analysis every 30 seconds — use ref to avoid stale closure
     periodicRef.current = setInterval(() => {
-      runAnalysis("periodic");
+      runAnalysisRef.current?.("periodic");
     }, 30000);
 
     // Auto-start mic
@@ -631,9 +634,9 @@ export default function InterviewCopilot() {
           }
 
           if (msg.type === "utterance_end") {
-            // Only trigger if analysis hasn't run in the last 20s
+            // Only trigger if analysis hasn't run in the last 20s — use ref to avoid stale closure
             if (Date.now() - lastAnalyzedRef.current > 20000) {
-              runAnalysis("utterance_end");
+              runAnalysisRef.current?.("utterance_end");
             }
           }
 
