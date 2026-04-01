@@ -262,6 +262,9 @@ export default function InterviewCopilot() {
   // Debrief
   const [debrief, setDebrief]       = useState(null);
   const [debriefLoading, setDebriefLoading] = useState(false);
+  const [emailTo, setEmailTo]       = useState("");
+  const [emailStatus, setEmailStatus] = useState("idle"); // idle | sending | sent | error
+  const [emailError, setEmailError] = useState("");
 
   const timerRef      = useRef(null);
   const tickerRef     = useRef(null);
@@ -496,6 +499,7 @@ export default function InterviewCopilot() {
     setDismissed(new Set()); setScores({}); setElapsed(0);
     setAnalyzeStatus("idle"); setLastSummary(""); setAnalyzeError("");
     setDebrief(null);
+    setEmailTo(""); setEmailStatus("idle"); setEmailError("");
     speakerMapRef.current = {};
     speakersSeenRef.current = [];
     setSpeakerMap({});
@@ -916,6 +920,63 @@ export default function InterviewCopilot() {
           <div style={{ padding:20, background:C.surface, border:`1px solid ${C.edge}`, borderRadius:6, marginBottom:24 }}>
             <div style={{ fontSize:12, color:"#f87171", marginBottom:8 }}>⚠ Could not connect to backend for AI debrief.</div>
             <div style={{ fontSize:11, color:C.muted }}>Signal scores and transcript are still available below.</div>
+          </div>
+        )}
+
+        {/* Email report */}
+        {debrief && (
+          <div style={{ marginBottom:20, padding:16, background:C.surface, border:`1px solid ${C.edge}`, borderRadius:6 }}>
+            <div style={{ fontSize:10, letterSpacing:3, color:C.muted, marginBottom:10 }}>EMAIL REPORT</div>
+            {emailStatus === "sent" ? (
+              <div style={{ fontSize:13, color:"#6ee7b7" }}>✓ Report sent to {emailTo}</div>
+            ) : (
+              <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                <input
+                  type="email"
+                  placeholder="recipient@email.com"
+                  value={emailTo}
+                  onChange={e => setEmailTo(e.target.value)}
+                  style={{
+                    flex:1, minWidth:200, padding:"8px 12px",
+                    background:C.surfaceAlt, border:`1px solid ${C.edge}`,
+                    borderRadius:3, color:C.bright, fontSize:12, fontFamily:"inherit",
+                    outline:"none",
+                  }}
+                />
+                <button
+                  disabled={emailStatus === "sending" || !emailTo.includes("@")}
+                  onClick={async () => {
+                    setEmailStatus("sending"); setEmailError("");
+                    try {
+                      const res = await fetch(`${API_BASE}/email-debrief`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          to: emailTo,
+                          config: { candidateName, roleTitle },
+                          debrief,
+                          scores,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.success) setEmailStatus("sent");
+                      else { setEmailError(data.error || "Send failed"); setEmailStatus("error"); }
+                    } catch (err) {
+                      setEmailError(err.message); setEmailStatus("error");
+                    }
+                  }}
+                  style={{
+                    padding:"8px 20px", borderRadius:3, fontFamily:"inherit",
+                    fontSize:10, letterSpacing:2, cursor: emailStatus === "sending" ? "default" : "pointer",
+                    background: emailStatus === "sending" ? C.edge : "#1d4ed8",
+                    border:"none", color: emailStatus === "sending" ? C.muted : "#fff",
+                  }}
+                >{emailStatus === "sending" ? "SENDING..." : "SEND"}</button>
+              </div>
+            )}
+            {emailStatus === "error" && (
+              <div style={{ fontSize:11, color:"#f87171", marginTop:6 }}>⚠ {emailError}</div>
+            )}
           </div>
         )}
 
