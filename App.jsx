@@ -625,48 +625,56 @@ export default function InterviewCopilot() {
 
     // ── START ────────────────────────────────────────────────────────────────
     try {
-      // Determine whether a stream's active track is a phone/wireless mic.
-      // We check the LIVE track label (always populated) not the enumerated label (often empty).
-      const isPhoneTrack = stream =>
-        /iphone|ipad|android|bluetooth|airpods|continuity/i.test(
-          stream.getAudioTracks()[0]?.label || ""
-        );
+      const isPhone = label => /iphone|ipad|android|bluetooth|airpods|continuity/i.test(label || "");
 
       async function acquireStream() {
-        // 1. Try the preferred device (exact match — we want this specific hardware)
+        // ── Path 1 (normal): loadDevices() on the setup screen already identified
+        //   the right mic and stored it in micDeviceIdRef. Just open it directly.
         if (micDeviceIdRef.current) {
           try {
             const s = await navigator.mediaDevices.getUserMedia({
               audio: { deviceId: { exact: micDeviceIdRef.current } },
               video: false,
             });
-            if (!isPhoneTrack(s)) return s;       // got a good mic — use it
-            s.getTracks().forEach(t => t.stop()); // got a phone mic — discard, fall through
-          } catch { /* device unavailable or denied — fall through */ }
+            if (!isPhone(s.getAudioTracks()[0]?.label)) return s;
+            s.getTracks().forEach(t => t.stop()); // saved pref was a phone — fall through
+          } catch { /* device unavailable — fall through */ }
         }
 
-        // 2. Enumerate all inputs and try each until we find a non-phone mic.
-        //    We open each stream briefly, read its track label, and keep the first winner.
+        // ── Path 2 (fallback): No good saved device. Open the system default first —
+        //   this populates enumerateDevices() labels so we can filter properly.
+        const anyStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const anyLabel  = anyStream.getAudioTracks()[0]?.label || "";
+
+        if (!isPhone(anyLabel)) {
+          // System default is a real mic. Save its exact deviceId for next time.
+          const devId = anyStream.getAudioTracks()[0]?.getSettings()?.deviceId;
+          if (devId) { micDeviceIdRef.current = devId; setMicDeviceId(devId); localStorage.setItem("disco-mic-device", devId); }
+          return anyStream;
+        }
+
+        // ── Path 3: System default was a phone mic. Labels are now populated.
+        //   Enumerate, filter out all phone devices BY LABEL (never open them),
+        //   and use the first non-phone device found.
+        anyStream.getTracks().forEach(t => t.stop());
         const all = await navigator.mediaDevices.enumerateDevices();
-        const inputs = all.filter(d => d.kind === "audioinput");
-        for (const device of inputs) {
+        for (const device of all.filter(d => d.kind === "audioinput" && !isPhone(d.label))) {
           try {
             const s = await navigator.mediaDevices.getUserMedia({
               audio: { deviceId: { exact: device.deviceId } },
               video: false,
             });
-            if (!isPhoneTrack(s)) {
-              // Update saved preference to this confirmed-good device
+            if (!isPhone(s.getAudioTracks()[0]?.label)) {
               micDeviceIdRef.current = device.deviceId;
               setMicDeviceId(device.deviceId);
               localStorage.setItem("disco-mic-device", device.deviceId);
               return s;
             }
-            s.getTracks().forEach(t => t.stop()); // phone mic — try next
+            s.getTracks().forEach(t => t.stop());
           } catch { continue; }
         }
 
-        // 3. Absolute last resort — accept any mic the browser offers
+        // ── Path 4: Absolute last resort
         return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       }
 
