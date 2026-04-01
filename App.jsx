@@ -625,9 +625,52 @@ export default function InterviewCopilot() {
 
     // ── START ────────────────────────────────────────────────────────────────
     try {
-      // Use "ideal" (not "exact") so a stale/unavailable deviceId falls back to any mic instead of hard-failing
-      const audioConstraint = micDeviceIdRef.current ? { deviceId: { ideal: micDeviceIdRef.current } } : true;
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
+      // Determine whether a stream's active track is a phone/wireless mic.
+      // We check the LIVE track label (always populated) not the enumerated label (often empty).
+      const isPhoneTrack = stream =>
+        /iphone|ipad|android|bluetooth|airpods|continuity/i.test(
+          stream.getAudioTracks()[0]?.label || ""
+        );
+
+      async function acquireStream() {
+        // 1. Try the preferred device (exact match — we want this specific hardware)
+        if (micDeviceIdRef.current) {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia({
+              audio: { deviceId: { exact: micDeviceIdRef.current } },
+              video: false,
+            });
+            if (!isPhoneTrack(s)) return s;       // got a good mic — use it
+            s.getTracks().forEach(t => t.stop()); // got a phone mic — discard, fall through
+          } catch { /* device unavailable or denied — fall through */ }
+        }
+
+        // 2. Enumerate all inputs and try each until we find a non-phone mic.
+        //    We open each stream briefly, read its track label, and keep the first winner.
+        const all = await navigator.mediaDevices.enumerateDevices();
+        const inputs = all.filter(d => d.kind === "audioinput");
+        for (const device of inputs) {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia({
+              audio: { deviceId: { exact: device.deviceId } },
+              video: false,
+            });
+            if (!isPhoneTrack(s)) {
+              // Update saved preference to this confirmed-good device
+              micDeviceIdRef.current = device.deviceId;
+              setMicDeviceId(device.deviceId);
+              localStorage.setItem("disco-mic-device", device.deviceId);
+              return s;
+            }
+            s.getTracks().forEach(t => t.stop()); // phone mic — try next
+          } catch { continue; }
+        }
+
+        // 3. Absolute last resort — accept any mic the browser offers
+        return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      }
+
+      const stream = await acquireStream();
       const ws = new window.WebSocket(`${WS_BASE}/mic`);
       micWsRef.current = ws;
 
