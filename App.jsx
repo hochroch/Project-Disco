@@ -265,6 +265,8 @@ export default function InterviewCopilot() {
   const [emailTo, setEmailTo]       = useState("");
   const [emailStatus, setEmailStatus] = useState("idle"); // idle | sending | sent | error
   const [emailError, setEmailError] = useState("");
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [micDeviceId, setMicDeviceId]   = useState("");
 
   const timerRef      = useRef(null);
   const tickerRef     = useRef(null);
@@ -305,6 +307,24 @@ export default function InterviewCopilot() {
   useEffect(() => {
     if (tickerRef.current) tickerRef.current.scrollTop = tickerRef.current.scrollHeight;
   }, [transcript]);
+
+  // ── MIC DEVICE ENUMERATION ──────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "setup") return;
+    async function loadDevices() {
+      try {
+        // Request permission first so device labels are populated
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const all = await navigator.mediaDevices.enumerateDevices();
+        const inputs = all.filter(d => d.kind === "audioinput");
+        setAudioDevices(inputs);
+        // Auto-select built-in mic if available, otherwise first device
+        const builtin = inputs.find(d => /built.?in|macbook|internal/i.test(d.label));
+        setMicDeviceId(builtin?.deviceId || inputs[0]?.deviceId || "");
+      } catch { /* mic permission denied — will surface when session starts */ }
+    }
+    loadDevices();
+  }, [phase]);
 
   // ── ANALYSIS CALL ───────────────────────────────────────────────────────
   const runAnalysis = useCallback(async (trigger = "periodic") => {
@@ -581,7 +601,8 @@ export default function InterviewCopilot() {
 
     // ── START ────────────────────────────────────────────────────────────────
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const audioConstraint = micDeviceId ? { deviceId: { exact: micDeviceId } } : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
       const ws = new window.WebSocket(`${WS_BASE}/mic`);
       micWsRef.current = ws;
 
@@ -795,6 +816,27 @@ export default function InterviewCopilot() {
             ))}
           </div>
         </div>
+
+        {audioDevices.length > 1 && (
+          <div style={{ marginTop:16, display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:9, letterSpacing:2, color:C.muted, flexShrink:0 }}>🎙 MIC</span>
+            <select
+              value={micDeviceId}
+              onChange={e => setMicDeviceId(e.target.value)}
+              style={{
+                flex:1, padding:"6px 10px", background:C.surfaceAlt,
+                border:`1px solid ${C.edge}`, borderRadius:3,
+                color:C.body, fontSize:11, fontFamily:"inherit", cursor:"pointer",
+              }}
+            >
+              {audioDevices.map(d => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Microphone ${d.deviceId.slice(0,6)}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div style={{ marginTop:24, paddingTop:20, borderTop:`1px solid ${C.edge}`, display:"flex", alignItems:"center", gap:16 }}>
           <span style={{ fontSize:11, color:C.muted }}>
