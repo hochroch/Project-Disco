@@ -379,8 +379,9 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     model: "claude-sonnet-4-5",
-    anthropic_key: !!process.env.ANTHROPIC_API_KEY,
-    deepgram_key:  !!process.env.DEEPGRAM_API_KEY,
+    anthropic_key:  !!process.env.ANTHROPIC_API_KEY,
+    deepgram_key:   !!process.env.DEEPGRAM_API_KEY,
+    postmark_key:   !!process.env.POSTMARK_API_KEY,
   });
 });
 
