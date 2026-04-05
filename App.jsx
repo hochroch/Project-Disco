@@ -474,6 +474,7 @@ export default function InterviewCopilot() {
   const interimRef      = useRef("");   // accumulates interim transcript text
   const speakerMapRef   = useRef({});   // { speakerId: "INTERVIEWER"|"CANDIDATE" }
   const speakersSeenRef = useRef([]);   // ordered by first appearance; index 0 = INTERVIEWER
+  const micActiveRef    = useRef(false); // always-current micActive (avoids stale closure in toggleMic)
 
   const fmt = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
@@ -748,6 +749,7 @@ export default function InterviewCopilot() {
   // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
   useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+  useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
 
   // ── KEYBOARD SHORTCUTS (live phase) ────────────────────────────────────��─
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1014,7 +1016,7 @@ export default function InterviewCopilot() {
 
   // ── MIC — Deepgram WebSocket streaming via backend relay ────────────────
   async function toggleMic() {
-    if (micActive) {
+    if (micActiveRef.current) {
       // ── STOP ──────────────────────────────────────────────────────────────
       recorderRef.current?.stop();
       recorderRef.current?.stream?.getTracks().forEach(t => t.stop());
