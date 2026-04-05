@@ -68,7 +68,8 @@ function buildSystemPrompt(config, sessionContext = {}) {
   const { candidateName, roleTitle, objectives, enabledSignals, mindset = "interviewer" } = config;
   const { elapsed = 0, objectivesCompleted = [] } = sessionContext;
   const isSales = mindset === "sales";
-  const isDiesel = !isSales && isDieselRole(roleTitle);
+  const isNegotiation = mindset === "negotiation";
+  const isDiesel = !isSales && !isNegotiation && isDieselRole(roleTitle);
 
   const signalInstructions = {
     deception:            "deception_risk: 0-100. Look for hedging language, vague answers to direct questions, inconsistencies, over-qualification, topic redirection, and unusually brief answers to important questions.",
@@ -87,6 +88,12 @@ function buildSystemPrompt(config, sessionContext = {}) {
     buying_intent:        "buying_intent: 0-100. Look for forward-leaning language ('when we implement', 'I'd want to'), questions about pricing/timeline, comparisons to current solution, internal stakeholder mentions.",
     objection_detected:   "objection_detected: 0-100. Look for hesitation language, 'but'/'however', price or budget pushback, timing deferral, 'we already have', 'need to think about it'.",
     closing_opportunity:  "closing_opportunity: 0-100. Look for explicit interest, urgency signals, confirmed budget/authority, next-step discussion. High score = strong moment to ask for commitment.",
+    anchor_detection:    "anchor_detection: 0-100. Look for first offers, reference prices, 'market rate' claims, comparisons to other deals, and any attempt to set a reference point. High score = strong anchor detected.",
+    concession_tracking: "concession_tracking: 0-100. Track the balance of concessions. High score = counterpart is making more concessions than you. Low score = you're giving more than getting.",
+    leverage_signals:    "leverage_signals: 0-100. Look for mentions of alternatives, competing offers, time pressure, walk-away power. High score = counterpart has strong leverage. Low score = you have leverage.",
+    emotional_pressure:  "emotional_pressure: 0-100. Look for guilt trips, artificial urgency ('this offer expires'), scarcity claims, personal appeals designed to bypass rational negotiation.",
+    zone_of_agreement:   "zone_of_agreement: 0-100. Estimate how close the parties are to a deal. High = converging, low = far apart. Track movement toward or away from agreement.",
+    commitment_language: "commitment_language: 0-100. Look for firm 'we will' vs hedging 'we might consider'. High = firm commitments being made. Low = lots of hedging and qualifiers.",
   };
 
   const activeSignalLines = Object.entries(signalInstructions)
@@ -94,15 +101,32 @@ function buildSystemPrompt(config, sessionContext = {}) {
     .map(([, instruction]) => `  - ${instruction}`)
     .join("\n");
 
-  const roleDescription = isSales
-    ? "You are a real-time sales call analysis assistant providing live coaching to the sales rep."
-    : "You are a real-time interview analysis assistant providing live coaching to the interviewer.";
+  const roleDescription = isNegotiation
+    ? "You are a real-time negotiation coach providing live tactical advice during a negotiation."
+    : isSales
+      ? "You are a real-time sales call analysis assistant providing live coaching to the sales rep."
+      : "You are a real-time interview analysis assistant providing live coaching to the interviewer.";
 
-  const contextSection = isSales
-    ? `CALL CONTEXT:\n- Prospect: ${candidateName}\n- Product/Service: ${roleTitle}\n- Rep objectives: ${objectives.join("; ")}`
-    : `INTERVIEW CONTEXT:\n- Candidate: ${candidateName}\n- Role: ${roleTitle}\n- Interviewer objectives: ${objectives.join("; ")}`;
+  const contextSection = isNegotiation
+    ? `NEGOTIATION CONTEXT:\n- Counterpart: ${candidateName}\n- Subject: ${roleTitle}\n- Your objectives: ${objectives.join("; ")}`
+    : isSales
+      ? `CALL CONTEXT:\n- Prospect: ${candidateName}\n- Product/Service: ${roleTitle}\n- Rep objectives: ${objectives.join("; ")}`
+      : `INTERVIEW CONTEXT:\n- Candidate: ${candidateName}\n- Role: ${roleTitle}\n- Interviewer objectives: ${objectives.join("; ")}`;
 
-  const probeGuidelines = isSales
+  const probeGuidelines = isNegotiation
+    ? `PROBE GUIDELINES:
+- Generate 1-3 probes maximum. Every probe must be verbatim-speakable.
+- Good probe types:
+  - Value exploration: "Before we discuss price, can you help me understand the total scope of what we're looking at?"
+  - Anchor response: "That's interesting. How did you arrive at that number?"
+  - Concession trade: "I can be flexible on [X] — would you be willing to move on [Y]?"
+  - BATNA probe: "What happens if we can't reach agreement today?"
+  - Commitment test: "If I can make [X] work, are you ready to move forward?"
+  - Reframe: "Let's step back — what's the outcome we're both trying to reach here?"
+- Bad probes: accepting the first offer, making unilateral concessions, emotional reactions.
+- NEVER suggest a probe that concedes something without asking for something in return.
+- Focus on the most important unresolved term or the strongest leverage point available.`
+    : isSales
     ? `PROBE GUIDELINES:
 - Generate 1-3 probes maximum. One excellent probe beats three mediocre ones.
 - Every probe must be verbatim-speakable — a real sentence the rep could say out loud right now.
@@ -144,7 +168,7 @@ Analyze the transcript and return a JSON object. Be fast and decisive — this i
 REQUIRED OUTPUT FORMAT — respond ONLY with this JSON, no preamble, no markdown fences:
 {
   "probes": [
-    "A specific follow-up ${isSales ? "question or statement the rep should say" : "question the interviewer should consider asking"}",
+    "A specific follow-up ${isNegotiation ? "question or statement to say in the negotiation" : isSales ? "question or statement the rep should say" : "question the interviewer should consider asking"}",
     "Another one if warranted"
   ],
   "signals": {
@@ -269,6 +293,12 @@ app.post("/debrief", async (req, res) => {
     buying_intent:       "Buying Intent — forward-leaning language, pricing/timeline questions",
     objection_detected:  "Objection Detected — hesitation, pushback, timing deferral",
     closing_opportunity: "Closing Opportunity — explicit interest, urgency, next-step readiness",
+    anchor_detection:    "Anchor Detection — first offers, reference points, framing attempts",
+    concession_tracking: "Concession Tracking — balance of concessions given vs received",
+    leverage_signals:    "Leverage Signals — power dynamics, alternatives, urgency indicators",
+    emotional_pressure:  "Emotional Pressure — guilt, urgency, scarcity tactics",
+    zone_of_agreement:   "Zone of Agreement — how close parties are to a deal",
+    commitment_language: "Commitment Language — firm commitments vs hedging and deferrals",
   };
 
   const signalLines = Object.entries(signals || {}).map(([k, v]) => {
@@ -279,11 +309,17 @@ app.post("/debrief", async (req, res) => {
   }).join("\n");
 
   const isSales = config.mindset === "sales";
+  const isNegotiation = config.mindset === "negotiation";
 
-  const prompt = `You are a senior ${isSales ? "sales coach" : "hiring coach"} reviewing a completed ${isSales ? "sales call" : "interview"}.
+  const coachRole = isNegotiation ? "negotiation analyst" : isSales ? "sales coach" : "hiring coach";
+  const sessionType = isNegotiation ? "negotiation" : isSales ? "sales call" : "interview";
+  const counterpartLabel = isNegotiation ? "COUNTERPART" : isSales ? "PROSPECT" : "CANDIDATE";
+  const subjectLabel = isNegotiation ? "SUBJECT" : isSales ? "PRODUCT/SERVICE" : "ROLE";
 
-${isSales ? "PROSPECT" : "CANDIDATE"}: ${config.candidateName}
-${isSales ? "PRODUCT/SERVICE" : "ROLE"}: ${config.roleTitle}
+  const prompt = `You are a senior ${coachRole} reviewing a completed ${sessionType}.
+
+${counterpartLabel}: ${config.candidateName}
+${subjectLabel}: ${config.roleTitle}
 OBJECTIVES: ${config.objectives?.join("; ")}
 
 SIGNAL SCORES WITH INTERPRETATION:
@@ -301,7 +337,7 @@ ${formatTranscript(transcript)}
 Provide a debrief in the following JSON format. No preamble, no markdown fences:
 {
   "verdict": "Strong Yes | Lean Yes | Neutral | Lean No | Strong No",
-  "headline": "One sentence summary of this ${isSales ? "prospect" : "candidate"}",
+  "headline": "One sentence summary of this ${isNegotiation ? "negotiation" : isSales ? "prospect" : "candidate"}",
   "risk_factors": [
     { "signal": "signal_name", "score": 72, "evidence": "Direct quote or specific moment from transcript that supports this concern" }
   ],
@@ -312,7 +348,7 @@ Provide a debrief in the following JSON format. No preamble, no markdown fences:
     { "type": "positive|concern|neutral", "text": "observation" }
   ],
   "next_steps": ["action item 1", "action item 2"],
-  "follow_up_email_draft": "A short follow-up email the ${isSales ? "rep" : "interviewer"} could send"
+  "follow_up_email_draft": "A short follow-up email the ${isNegotiation ? "negotiator" : isSales ? "rep" : "interviewer"} could send"
 }
 
 GUIDELINES:

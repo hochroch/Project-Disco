@@ -41,6 +41,13 @@ const SIGNAL_TYPES = {
   buying_intent:        { label:"Buying Intent",         icon:"◆", color:"#34d399", bg:"#052e1a", border:"#10b981", desc:"Purchase readiness and interest signals",   defaultOn:false, category:"interest"   },
   objection_detected:   { label:"Objection Detected",    icon:"⚡", color:"#fbbf24", bg:"#2a1a00", border:"#f59e0b", desc:"Price, timing, or fit pushback",            defaultOn:false, category:"integrity"  },
   closing_opportunity:  { label:"Closing Opportunity",   icon:"►", color:"#a78bfa", bg:"#130d2e", border:"#7c3aed", desc:"Readiness signals — prospect near a yes",   defaultOn:false, category:"competence" },
+  // Negotiation mindset signals
+  anchor_detection:    { label:"Anchor Detection",    icon:"⚓", color:"#fb923c", bg:"#1a1008", border:"#ea580c", desc:"First offers, reference points, framing attempts",  defaultOn:false, category:"integrity"  },
+  concession_tracking: { label:"Concession Tracking", icon:"⇌", color:"#a78bfa", bg:"#130d2e", border:"#7c3aed", desc:"Rate and pattern of concessions given vs received", defaultOn:false, category:"competence" },
+  leverage_signals:    { label:"Leverage Signals",    icon:"◆", color:"#fbbf24", bg:"#1a1400", border:"#d97706", desc:"Power dynamics, alternatives, urgency indicators",  defaultOn:false, category:"competence" },
+  emotional_pressure:  { label:"Emotional Pressure",  icon:"⚡", color:"#f87171", bg:"#2a1010", border:"#ef4444", desc:"Guilt, urgency, scarcity tactics detected",         defaultOn:false, category:"integrity"  },
+  zone_of_agreement:   { label:"Zone of Agreement",   icon:"◎", color:"#34d399", bg:"#052e1a", border:"#10b981", desc:"How close parties are to a deal",                   defaultOn:false, category:"interest"   },
+  commitment_language: { label:"Commitment Language",  icon:"✓", color:"#60a5fa", bg:"#0c1a2e", border:"#2563eb", desc:"Firm commitments vs hedging and deferrals",         defaultOn:false, category:"interest"   },
 };
 
 const CATEGORIES = {
@@ -82,6 +89,26 @@ const MINDSETS = {
       "Gauge urgency and timeline",
       "Handle key objections",
       "Move toward commitment or next step",
+    ],
+  },
+  negotiation: {
+    label: "Negotiation",
+    nameLabel: "Counterpart Name",
+    roleLabel: "Subject / Deal",
+    signals: {
+      followup: true, deception: true, sincerity: false, engagement: true,
+      knowledge: false, stress: true, avoidance: true, latency: false,
+      confidence: true, cultural: false, preparation: false,
+      rapport: true, buying_intent: false, objection_detected: false, closing_opportunity: false,
+      anchor_detection: true, concession_tracking: true, leverage_signals: true,
+      emotional_pressure: true, zone_of_agreement: true, commitment_language: true,
+    },
+    objectives: [
+      "Establish your BATNA and identify theirs",
+      "Detect and respond to anchoring attempts",
+      "Track concession patterns — don't give without getting",
+      "Identify the real decision-maker and constraints",
+      "Move toward a specific commitment or next step",
     ],
   },
 };
@@ -151,6 +178,32 @@ const PLAYBOOK_TEMPLATES = [
       "Gauge ability to manage client relationships and competing stakeholder expectations",
       "Evaluate candidate assessment methodology beyond resume screening",
       "Confirm discretion, confidentiality practices, and professional network depth",
+    ],
+  },
+  {
+    name: "Salary Negotiation",
+    mindset: "negotiation",
+    roleTitle: "Compensation Package",
+    enabledSignals: { followup:true, deception:true, sincerity:false, engagement:true, knowledge:false, stress:true, avoidance:true, latency:false, confidence:true, cultural:false, preparation:false, rapport:true, buying_intent:false, objection_detected:false, closing_opportunity:false, anchor_detection:true, concession_tracking:true, leverage_signals:true, emotional_pressure:true, zone_of_agreement:true, commitment_language:true },
+    objectives: [
+      "Establish your market value range before discussing numbers",
+      "Let them anchor first if possible",
+      "Negotiate total compensation, not just base salary",
+      "Identify what's flexible vs fixed in the offer",
+      "Get a specific commitment or timeline for next step",
+    ],
+  },
+  {
+    name: "Vendor Contract",
+    mindset: "negotiation",
+    roleTitle: "Service Agreement",
+    enabledSignals: { followup:true, deception:true, sincerity:false, engagement:true, knowledge:false, stress:false, avoidance:true, latency:false, confidence:true, cultural:false, preparation:false, rapport:true, buying_intent:false, objection_detected:false, closing_opportunity:false, anchor_detection:true, concession_tracking:true, leverage_signals:true, emotional_pressure:true, zone_of_agreement:true, commitment_language:true },
+    objectives: [
+      "Understand their cost structure and margin flexibility",
+      "Identify volume or term-based leverage points",
+      "Negotiate SLA terms and penalty clauses",
+      "Get competitive pricing without damaging the relationship",
+      "Secure written commitment on agreed terms",
     ],
   },
 ];
