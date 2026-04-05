@@ -69,7 +69,9 @@ function buildSystemPrompt(config, sessionContext = {}) {
   const { elapsed = 0, objectivesCompleted = [] } = sessionContext;
   const isSales = mindset === "sales";
   const isNegotiation = mindset === "negotiation";
-  const isDiesel = !isSales && !isNegotiation && isDieselRole(roleTitle);
+  const isCoaching = mindset === "coaching";
+  const isDiscovery = mindset === "discovery";
+  const isDiesel = !isSales && !isNegotiation && !isCoaching && !isDiscovery && isDieselRole(roleTitle);
 
   const signalInstructions = {
     deception:            "deception_risk: 0-100. Look for hedging language, vague answers to direct questions, inconsistencies, over-qualification, topic redirection, and unusually brief answers to important questions.",
@@ -94,6 +96,16 @@ function buildSystemPrompt(config, sessionContext = {}) {
     emotional_pressure:  "emotional_pressure: 0-100. Look for guilt trips, artificial urgency ('this offer expires'), scarcity claims, personal appeals designed to bypass rational negotiation.",
     zone_of_agreement:   "zone_of_agreement: 0-100. Estimate how close the parties are to a deal. High = converging, low = far apart. Track movement toward or away from agreement.",
     commitment_language: "commitment_language: 0-100. Look for firm 'we will' vs hedging 'we might consider'. High = firm commitments being made. Low = lots of hedging and qualifiers.",
+    psychological_safety:     "psychological_safety: 0-100. Look for open sharing, willingness to discuss mistakes, relaxed tone vs. guarded or monosyllabic answers. High = they feel safe. Low = shutting down.",
+    accountability_acceptance:"accountability_acceptance: 0-100. Look for 'I' ownership statements, acknowledging impact, proposing solutions vs. deflecting blame to others, circumstances, or the system.",
+    defensiveness:            "defensiveness: 0-100. Look for 'but' responses, blame-shifting, minimizing ('it wasn't that bad'), counter-accusations, or emotional escalation. High = very defensive.",
+    growth_mindset:           "growth_mindset: 0-100. Look for 'I can work on that', asking for help, curiosity about improvement vs. fixed statements ('that's just who I am', 'I've always been this way').",
+    action_commitment:        "action_commitment: 0-100. Look for specific next steps with dates, 'I will' language, and concrete plans vs. vague 'I'll try' or no commitments made.",
+    coverage_completeness:    "coverage_completeness: 0-100. Track what percentage of the key diagnostic areas have been explored. High = thorough discovery. Low = major gaps remain.",
+    symptom_severity:         "symptom_severity: 0-100. Based on what's been described, how serious is the issue? High = critical/urgent. Low = minor/nice-to-have.",
+    root_cause_proximity:     "root_cause_proximity: 0-100. Are we getting closer to the actual problem? High = root cause identified. Low = still circling surface symptoms.",
+    client_trust:             "client_trust: 0-100. Is the client sharing openly? High = volunteering sensitive info, showing vulnerability. Low = guarded, vague, PR answers.",
+    recommendation_readiness: "recommendation_readiness: 0-100. Does the advisor have enough info to make a sound recommendation? High = clear picture. Low = too many unknowns.",
   };
 
   const activeSignalLines = Object.entries(signalInstructions)
@@ -101,19 +113,53 @@ function buildSystemPrompt(config, sessionContext = {}) {
     .map(([, instruction]) => `  - ${instruction}`)
     .join("\n");
 
-  const roleDescription = isNegotiation
-    ? "You are a real-time negotiation coach providing live tactical advice during a negotiation."
-    : isSales
-      ? "You are a real-time sales call analysis assistant providing live coaching to the sales rep."
-      : "You are a real-time interview analysis assistant providing live coaching to the interviewer.";
+  const roleDescription = isCoaching
+    ? "You are a real-time coaching assistant helping a manager navigate a performance conversation with an employee."
+    : isDiscovery
+      ? "You are a real-time discovery coach helping an advisor conduct a thorough diagnostic conversation."
+      : isNegotiation
+        ? "You are a real-time negotiation coach providing live tactical advice during a negotiation."
+        : isSales
+          ? "You are a real-time sales call analysis assistant providing live coaching to the sales rep."
+          : "You are a real-time interview analysis assistant providing live coaching to the interviewer.";
 
-  const contextSection = isNegotiation
-    ? `NEGOTIATION CONTEXT:\n- Counterpart: ${candidateName}\n- Subject: ${roleTitle}\n- Your objectives: ${objectives.join("; ")}`
-    : isSales
-      ? `CALL CONTEXT:\n- Prospect: ${candidateName}\n- Product/Service: ${roleTitle}\n- Rep objectives: ${objectives.join("; ")}`
-      : `INTERVIEW CONTEXT:\n- Candidate: ${candidateName}\n- Role: ${roleTitle}\n- Interviewer objectives: ${objectives.join("; ")}`;
+  const contextSection = isCoaching
+    ? `COACHING CONTEXT:\n- Employee: ${candidateName}\n- Topic: ${roleTitle}\n- Manager objectives: ${objectives.join("; ")}`
+    : isDiscovery
+      ? `DISCOVERY CONTEXT:\n- Client: ${candidateName}\n- Domain: ${roleTitle}\n- Discovery objectives: ${objectives.join("; ")}`
+      : isNegotiation
+        ? `NEGOTIATION CONTEXT:\n- Counterpart: ${candidateName}\n- Subject: ${roleTitle}\n- Your objectives: ${objectives.join("; ")}`
+        : isSales
+          ? `CALL CONTEXT:\n- Prospect: ${candidateName}\n- Product/Service: ${roleTitle}\n- Rep objectives: ${objectives.join("; ")}`
+          : `INTERVIEW CONTEXT:\n- Candidate: ${candidateName}\n- Role: ${roleTitle}\n- Interviewer objectives: ${objectives.join("; ")}`;
 
-  const probeGuidelines = isNegotiation
+  const probeGuidelines = isCoaching
+    ? `PROBE GUIDELINES:
+- Generate 1-3 probes maximum. Every probe must be verbatim-speakable — a real thing the manager could say.
+- Good probe types:
+  - Impact awareness: "Help me understand — how do you think this affected the team?"
+  - Behavioral specificity: "Can you walk me through what happened on [specific date/incident]?"
+  - Perspective check: "What would you do differently if you could replay that situation?"
+  - Action planning: "What would success look like for you in the next 30 days?"
+  - Support offer: "What do you need from me to make that happen?"
+  - Accountability anchor: "So we're agreed — you'll [specific action] by [specific date]. Is that right?"
+- Bad probes: lecturing, vague encouragement ("keep up the good work"), yes/no questions, leading questions.
+- CRITICAL: If defensiveness is rising (>65), suggest de-escalation probes: validate their perspective first, then redirect.
+- Focus on moving the conversation toward specific commitments with dates.`
+    : isDiscovery
+    ? `PROBE GUIDELINES:
+- Generate 1-3 probes maximum. Every probe must be verbatim-speakable.
+- Good probe types:
+  - Timeline: "When did you first notice this? What was happening at that time?"
+  - Impact: "On a scale of 1-10, how much is this affecting your [operations/revenue/team]?"
+  - Root cause: "You mentioned [symptom]. What do you think is actually causing that?"
+  - Completeness: "Is there anything else related to this that we haven't discussed yet?"
+  - Prior attempts: "What have you already tried to solve this? What happened?"
+  - Constraint mapping: "What would prevent you from implementing a solution even if we found the right one?"
+  - Stakeholder: "Who else is affected by this, and what's their perspective?"
+- Bad probes: jumping to solutions too early, asking about things already well-covered, leading questions.
+- CRITICAL: If coverage_completeness is below 50, prioritize breadth (new areas) over depth. If above 70, prioritize depth (root cause).`
+    : isNegotiation
     ? `PROBE GUIDELINES:
 - Generate 1-3 probes maximum. Every probe must be verbatim-speakable.
 - Good probe types:
@@ -168,7 +214,7 @@ Analyze the transcript and return a JSON object. Be fast and decisive — this i
 REQUIRED OUTPUT FORMAT — respond ONLY with this JSON, no preamble, no markdown fences:
 {
   "probes": [
-    "A specific follow-up ${isNegotiation ? "question or statement to say in the negotiation" : isSales ? "question or statement the rep should say" : "question the interviewer should consider asking"}",
+    "A specific follow-up ${isCoaching ? "question or statement the manager should say" : isDiscovery ? "question the advisor should ask to deepen discovery" : isNegotiation ? "question or statement to say in the negotiation" : isSales ? "question or statement the rep should say" : "question the interviewer should consider asking"}",
     "Another one if warranted"
   ],
   "signals": {
@@ -299,6 +345,16 @@ app.post("/debrief", async (req, res) => {
     emotional_pressure:  "Emotional Pressure — guilt, urgency, scarcity tactics",
     zone_of_agreement:   "Zone of Agreement — how close parties are to a deal",
     commitment_language: "Commitment Language — firm commitments vs hedging and deferrals",
+    psychological_safety:      "Psychological Safety — open sharing vs. guarded, monosyllabic answers",
+    accountability_acceptance: "Accountability — 'I' ownership vs. deflecting blame",
+    defensiveness:             "Defensiveness — 'but' responses, blame-shifting, minimizing, escalation",
+    growth_mindset:            "Growth Mindset — 'I can work on that' vs. 'that's just who I am'",
+    action_commitment:         "Action Commitment — specific next steps with dates vs. vague 'I'll try'",
+    coverage_completeness:     "Coverage — percentage of diagnostic areas explored",
+    symptom_severity:          "Severity — how serious the issue is based on what's described",
+    root_cause_proximity:      "Root Cause — how close to identifying the actual problem",
+    client_trust:              "Client Trust — openness and willingness to share sensitive info",
+    recommendation_readiness:  "Recommendation Ready — enough info gathered to advise",
   };
 
   const signalLines = Object.entries(signals || {}).map(([k, v]) => {
@@ -308,18 +364,28 @@ app.post("/debrief", async (req, res) => {
     return `- ${desc}: ${v} (${level})`;
   }).join("\n");
 
-  const isSales = config.mindset === "sales";
-  const isNegotiation = config.mindset === "negotiation";
+  const m = config.mindset || "interviewer";
+  const mindsetConfig = {
+    interviewer:  { coach: "hiring coach",        session: "interview",                person: "CANDIDATE",  subject: "ROLE",            headline: "candidate",                     email: "interviewer", verdict: "Strong Yes | Lean Yes | Neutral | Lean No | Strong No" },
+    sales:        { coach: "sales coach",          session: "sales call",               person: "PROSPECT",   subject: "PRODUCT/SERVICE",  headline: "prospect",                      email: "rep",         verdict: "Strong Yes | Lean Yes | Neutral | Lean No | Strong No" },
+    negotiation:  { coach: "negotiation analyst",  session: "negotiation",              person: "COUNTERPART",subject: "SUBJECT",          headline: "negotiation",                   email: "negotiator",  verdict: "Strong Yes | Lean Yes | Neutral | Lean No | Strong No" },
+    coaching:     { coach: "coaching advisor",      session: "performance conversation", person: "EMPLOYEE",   subject: "TOPIC",            headline: "employee's response to feedback",email: "manager",     verdict: "Strong Progress | Making Progress | Stalled | Resistant | Escalation Needed" },
+    discovery:    { coach: "consulting advisor",    session: "discovery session",         person: "CLIENT",     subject: "DOMAIN",           headline: "client's situation",             email: "advisor",     verdict: "Clear Diagnosis | Partial Clarity | Needs Follow-Up | Inconclusive | Misaligned Expectations" },
+  };
+  const mc = mindsetConfig[m] || mindsetConfig.interviewer;
 
-  const coachRole = isNegotiation ? "negotiation analyst" : isSales ? "sales coach" : "hiring coach";
-  const sessionType = isNegotiation ? "negotiation" : isSales ? "sales call" : "interview";
-  const counterpartLabel = isNegotiation ? "COUNTERPART" : isSales ? "PROSPECT" : "CANDIDATE";
-  const subjectLabel = isNegotiation ? "SUBJECT" : isSales ? "PRODUCT/SERVICE" : "ROLE";
+  const scoringGuide = m === "coaching"
+    ? `- For integrity signals (defensiveness, avoidance, stress): HIGH scores are BAD.
+- For positive signals (psychological_safety, accountability_acceptance, growth_mindset, action_commitment): HIGH scores are GOOD.
+- High defensiveness (>65) + low accountability (<40) + low action_commitment (<40) = Resistant. High psychological_safety (>70) + strong growth_mindset (>65) + concrete action_commitment (>65) = Strong Progress.`
+    : `- For integrity signals (deception, avoidance, stress): HIGH scores are BAD.
+- For competence/interest signals (knowledge, engagement, preparation, confidence): HIGH scores are GOOD.
+- Weight your verdict heavily on the signal pattern.`;
 
-  const prompt = `You are a senior ${coachRole} reviewing a completed ${sessionType}.
+  const prompt = `You are a senior ${mc.coach} reviewing a completed ${mc.session}.
 
-${counterpartLabel}: ${config.candidateName}
-${subjectLabel}: ${config.roleTitle}
+${mc.person}: ${config.candidateName}
+${mc.subject}: ${config.roleTitle}
 OBJECTIVES: ${config.objectives?.join("; ")}
 
 SIGNAL SCORES WITH INTERPRETATION:
@@ -327,17 +393,15 @@ ${signalLines}
 
 SCORING GUIDE:
 - Scores are 0-100. Above 70 = notable strength. Below 40 = notable concern. 50 = neutral/insufficient data.
-- For integrity signals (deception, avoidance, stress): HIGH scores are BAD (more deception, more avoidance, more stress).
-- For competence/interest signals (knowledge, engagement, preparation, confidence): HIGH scores are GOOD.
-- Weight your verdict heavily on the signal pattern. Elevated deception (>65) combined with low knowledge (<45) should push strongly toward No. Strong knowledge (>75) with high engagement (>70) and low deception (<35) should push toward Yes.
+${scoringGuide}
 
 FULL TRANSCRIPT:
 ${formatTranscript(transcript)}
 
 Provide a debrief in the following JSON format. No preamble, no markdown fences:
 {
-  "verdict": "Strong Yes | Lean Yes | Neutral | Lean No | Strong No",
-  "headline": "One sentence summary of this ${isNegotiation ? "negotiation" : isSales ? "prospect" : "candidate"}",
+  "verdict": "${mc.verdict}",
+  "headline": "One sentence summary of this ${mc.headline}",
   "risk_factors": [
     { "signal": "signal_name", "score": 72, "evidence": "Direct quote or specific moment from transcript that supports this concern" }
   ],
@@ -348,7 +412,7 @@ Provide a debrief in the following JSON format. No preamble, no markdown fences:
     { "type": "positive|concern|neutral", "text": "observation" }
   ],
   "next_steps": ["action item 1", "action item 2"],
-  "follow_up_email_draft": "A short follow-up email the ${isNegotiation ? "negotiator" : isSales ? "rep" : "interviewer"} could send"
+  "follow_up_email_draft": "A short follow-up email the ${mc.email} could send"
 }
 
 GUIDELINES:
