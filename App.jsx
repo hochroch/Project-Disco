@@ -558,6 +558,20 @@ export default function InterviewCopilot() {
   // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
   useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
 
+  // ── KEYBOARD SHORTCUTS (live phase) ────────────────────────────────────��─
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  useEffect(() => {
+    if (phase !== "live") return;
+    function handleKey(e) {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key === "m") { e.preventDefault(); toggleMic(); }
+      if (meta && e.key === "a") { e.preventDefault(); runAnalysisRef.current?.("manual"); }
+      if (e.key === "/" && !e.target.closest("textarea,input")) { e.preventDefault(); setShowShortcuts(s => !s); }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [phase, micActive]);
+
   // Returns a contextual note string for a notable signal
   function getSummaryForSignal(type, score, summary) {
     if (type === "latency_flag") return "Unusual response latency detected on last answer.";
@@ -989,7 +1003,7 @@ export default function InterviewCopilot() {
                         <div style={{ marginBottom:20 }}>
                           <div style={{ fontSize:9, letterSpacing:4, color:C.muted, marginBottom:8 }}>OBSERVATIONS</div>
                           {result.debrief.observations.map((o, i) => (
-                            <div key={i} style={{ fontSize:11, color:C.body, marginBottom:4, paddingLeft:12, borderLeft:`2px solid ${C.edge}` }}>{o}</div>
+                            <div key={i} style={{ fontSize:11, color:C.body, marginBottom:4, paddingLeft:12, borderLeft:`2px solid ${C.edge}` }}>{typeof o === "string" ? o : o.text}</div>
                           ))}
                         </div>
                       )}
@@ -1234,13 +1248,14 @@ export default function InterviewCopilot() {
             </div>
 
             {/* Signal score rings */}
-            <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:24 }}>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
               {Object.entries(scores).map(([key,val]) => {
                 const sig = SIGNAL_TYPES[key]; if (!sig) return null;
+                const rationale = debrief.scoring_rationale?.[key];
                 return (
                   <div key={key} style={{
                     padding:"12px 14px", background:sig.bg, border:`1px solid ${sig.border}60`,
-                    borderRadius:6, display:"flex", alignItems:"center", gap:10,
+                    borderRadius:6, display:"flex", alignItems:"center", gap:10, maxWidth:280,
                   }}>
                     <div style={{ position:"relative", flexShrink:0 }}>
                       <Ring score={val} color={sig.color} size={44}/>
@@ -1249,14 +1264,36 @@ export default function InterviewCopilot() {
                         fontSize:12, fontWeight:700, color:sig.color,
                       }}>{val}</span>
                     </div>
-                    <div>
-                      <div style={{ fontSize:11, color:sig.color }}>{sig.icon}</div>
-                      <div style={{ fontSize:9, color:C.muted, letterSpacing:1, marginTop:2 }}>{sig.label.toUpperCase()}</div>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:11, color:sig.color }}>{sig.icon} <span style={{ fontSize:9, color:C.muted, letterSpacing:1 }}>{sig.label.toUpperCase()}</span></div>
+                      {rationale && <div style={{ fontSize:10, color:C.body, lineHeight:1.5, marginTop:4, opacity:0.8 }}>{rationale}</div>}
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Risk factors */}
+            {debrief.risk_factors?.length > 0 && (
+              <div style={{ marginBottom:20 }}>
+                <SectionLabel>Risk Factors</SectionLabel>
+                {debrief.risk_factors.map((rf, i) => {
+                  const sig = SIGNAL_TYPES[rf.signal];
+                  return (
+                    <div key={i} style={{
+                      marginBottom:5, padding:"10px 14px",
+                      background:"#1a0a0a", borderLeft:"3px solid #f87171",
+                      borderRadius:"0 4px 4px 0",
+                    }}>
+                      <div style={{ fontSize:10, color:"#f87171", letterSpacing:1, marginBottom:4 }}>
+                        {sig ? `${sig.icon} ${sig.label.toUpperCase()}` : rf.signal?.toUpperCase()} — {rf.score}
+                      </div>
+                      <div style={{ fontSize:12, color:C.body, lineHeight:1.7, fontStyle:"italic" }}>"{rf.evidence}"</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Observations */}
             <div style={{ marginBottom:20 }}>
@@ -1368,6 +1405,31 @@ export default function InterviewCopilot() {
               <div style={{ fontSize:11, color:"#f87171", marginTop:6 }}>⚠ {emailError}</div>
             )}
           </div>
+        )}
+
+        {/* Session transcript */}
+        {transcript.length > 0 && (
+          <details style={{ marginBottom:20 }}>
+            <summary style={{
+              fontSize:10, letterSpacing:4, color:C.muted, cursor:"pointer", marginBottom:10,
+              textTransform:"uppercase",
+            }}>Full Transcript ({transcript.length} lines)</summary>
+            <div style={{
+              maxHeight:400, overflowY:"auto", padding:16,
+              background:C.surface, border:`1px solid ${C.edge}`, borderRadius:6,
+              display:"flex", flexDirection:"column", gap:8,
+            }}>
+              {transcript.map((t, i) => (
+                <div key={i} style={{ fontSize:11, lineHeight:1.6 }}>
+                  <span style={{
+                    fontSize:9, letterSpacing:2, marginRight:10, flexShrink:0,
+                    color: t.speaker === "INTERVIEWER" ? "#60a5fa" : "#4ade80",
+                  }}>{t.speaker === "INTERVIEWER" ? "YOU" : candidateName.split(" ")[0]?.toUpperCase()}</span>
+                  <span style={{ color:C.body }}>{t.text}</span>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
 
         <div style={{ display:"flex", gap:10 }}>
@@ -1549,6 +1611,10 @@ export default function InterviewCopilot() {
             </span>
           )}
           <span style={{ fontSize:12, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{fmt(elapsed)}</span>
+          <button onClick={() => setShowShortcuts(s => !s)} style={{
+            padding:"8px 10px", background:"transparent", border:`1px solid ${C.edge}`,
+            borderRadius:4, color:C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer",
+          }} title="Keyboard shortcuts ( / )">?</button>
           <button onClick={endSession} style={{
             padding:"8px 18px", background:"transparent", border:`1px solid ${C.edge}`,
             borderRadius:4, color:C.muted, fontSize:11, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
@@ -1612,13 +1678,23 @@ export default function InterviewCopilot() {
               <span style={{ fontSize:22, color:"#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>→</span>
               <span style={{ fontSize:17, color:"#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
             </div>
-            <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
-              background:"none", border:"none", color:C.muted,
-              cursor:"pointer", fontSize:20, padding:"0 2px", fontFamily:"inherit", flexShrink:0, lineHeight:1,
-            }}
-              onMouseEnter={e=>e.target.style.color="#38bdf8"}
-              onMouseLeave={e=>e.target.style.color=C.muted}
-            >×</button>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+              <button onClick={() => { navigator.clipboard.writeText(probe.text); }} style={{
+                background:"none", border:"none", color:C.muted,
+                cursor:"pointer", fontSize:14, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+              }}
+                onMouseEnter={e=>e.target.style.color="#38bdf8"}
+                onMouseLeave={e=>e.target.style.color=C.muted}
+                title="Copy to clipboard"
+              >⎘</button>
+              <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
+                background:"none", border:"none", color:C.muted,
+                cursor:"pointer", fontSize:20, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+              }}
+                onMouseEnter={e=>e.target.style.color="#38bdf8"}
+                onMouseLeave={e=>e.target.style.color=C.muted}
+              >×</button>
+            </div>
           </div>
         ))}
       </div>
@@ -1805,6 +1881,32 @@ export default function InterviewCopilot() {
           );
         })}
       </div>
+
+      {/* ── KEYBOARD SHORTCUTS OVERLAY ── */}
+      {showShortcuts && (
+        <div onClick={() => setShowShortcuts(false)} style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,.65)", display:"flex",
+          alignItems:"center", justifyContent:"center", zIndex:9999,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background:C.surface, border:`1px solid ${C.edge}`, borderRadius:8,
+            padding:"24px 32px", maxWidth:320,
+          }}>
+            <div style={{ fontSize:10, letterSpacing:4, color:C.muted, marginBottom:16 }}>KEYBOARD SHORTCUTS</div>
+            {[
+              ["⌘ M", "Toggle mic"],
+              ["⌘ A", "Analyze now"],
+              ["⌘ Enter", "Submit text"],
+              ["/", "Toggle this panel"],
+            ].map(([key, desc]) => (
+              <div key={key} style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontSize:11, color:C.body }}>{desc}</span>
+                <kbd style={{ fontSize:10, color:"#38bdf8", background:C.bg, padding:"2px 8px", borderRadius:3, border:`1px solid ${C.edge}` }}>{key}</kbd>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

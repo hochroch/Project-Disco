@@ -182,7 +182,20 @@ app.post("/analyze", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  const userMessage = `TRIGGER: ${trigger}\n\nFULL TRANSCRIPT SO FAR:\n${formatTranscript(transcript)}\n\nAnalyze the above and return your JSON response now.`;
+  // Context windowing: for long sessions, compress early transcript to stay within context limits
+  let transcriptSection;
+  if (transcript.length > 40) {
+    const cutoff = Math.floor(transcript.length * 0.6);
+    const early = transcript.slice(0, cutoff);
+    const recent = transcript.slice(cutoff);
+    const speakers = [...new Set(early.map(t => t.speaker))];
+    const topics = early.map(t => t.text).join(" ").slice(0, 300);
+    transcriptSection = `[EARLIER (${cutoff} exchanges, speakers: ${speakers.join(", ")}): ${topics}...]\n\nRECENT TRANSCRIPT:\n${formatTranscript(recent)}`;
+  } else {
+    transcriptSection = formatTranscript(transcript);
+  }
+
+  const userMessage = `TRIGGER: ${trigger}\n\nTRANSCRIPT (${transcript.length} total exchanges):\n${transcriptSection}\n\nAnalyze the above and return your JSON response now.`;
   let fullText = "";
 
   try {
@@ -225,16 +238,46 @@ app.post("/analyze", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/debrief", async (req, res) => {
   const { config, transcript, signals } = req.body;
-  const signalSummary = Object.entries(signals || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
+  const signalDescriptions = {
+    deception:           "Deception Risk — hedging, contradiction, vague answers to direct questions",
+    sincerity:           "Sincerity — authentic examples, unprompted elaboration, consistent tone",
+    engagement:          "Engagement — energy, elaboration beyond asked, enthusiasm",
+    knowledge:           "Knowledge — specific numbers, correct terminology, operational detail",
+    stress:              "Stress — filler words, sentence restarts, abrupt brevity",
+    avoidance:           "Avoidance — reframing questions, pivoting to safer territory",
+    latency:             "Latency Flag — unusually short answers relative to question complexity",
+    confidence:          "Confidence — appropriate uncertainty vs. overclaiming vs. underclaiming",
+    cultural:            "Cultural Fit — values language, team-first vs. individual framing",
+    preparation:         "Preparation — company-specific references, role-specific language",
+    rapport:             "Rapport — warmth, matched energy, personal connection",
+    buying_intent:       "Buying Intent — forward-leaning language, pricing/timeline questions",
+    objection_detected:  "Objection Detected — hesitation, pushback, timing deferral",
+    closing_opportunity: "Closing Opportunity — explicit interest, urgency, next-step readiness",
+  };
 
-  const prompt = `You are a senior hiring coach reviewing a completed interview.
+  const signalLines = Object.entries(signals || {}).map(([k, v]) => {
+    const desc = signalDescriptions[k] || k;
+    const level = typeof v === "boolean" ? (v ? "FLAGGED" : "clear")
+      : v >= 70 ? "HIGH" : v <= 40 ? "LOW" : "MODERATE";
+    return `- ${desc}: ${v} (${level})`;
+  }).join("\n");
 
-CANDIDATE: ${config.candidateName}
-ROLE: ${config.roleTitle}
+  const isSales = config.mindset === "sales";
+
+  const prompt = `You are a senior ${isSales ? "sales coach" : "hiring coach"} reviewing a completed ${isSales ? "sales call" : "interview"}.
+
+${isSales ? "PROSPECT" : "CANDIDATE"}: ${config.candidateName}
+${isSales ? "PRODUCT/SERVICE" : "ROLE"}: ${config.roleTitle}
 OBJECTIVES: ${config.objectives?.join("; ")}
 
-SIGNAL SCORES RECORDED DURING INTERVIEW:
-${signalSummary}
+SIGNAL SCORES WITH INTERPRETATION:
+${signalLines}
+
+SCORING GUIDE:
+- Scores are 0-100. Above 70 = notable strength. Below 40 = notable concern. 50 = neutral/insufficient data.
+- For integrity signals (deception, avoidance, stress): HIGH scores are BAD (more deception, more avoidance, more stress).
+- For competence/interest signals (knowledge, engagement, preparation, confidence): HIGH scores are GOOD.
+- Weight your verdict heavily on the signal pattern. Elevated deception (>65) combined with low knowledge (<45) should push strongly toward No. Strong knowledge (>75) with high engagement (>70) and low deception (<35) should push toward Yes.
 
 FULL TRANSCRIPT:
 ${formatTranscript(transcript)}
@@ -242,13 +285,25 @@ ${formatTranscript(transcript)}
 Provide a debrief in the following JSON format. No preamble, no markdown fences:
 {
   "verdict": "Strong Yes | Lean Yes | Neutral | Lean No | Strong No",
-  "headline": "One sentence summary of this candidate",
+  "headline": "One sentence summary of this ${isSales ? "prospect" : "candidate"}",
+  "risk_factors": [
+    { "signal": "signal_name", "score": 72, "evidence": "Direct quote or specific moment from transcript that supports this concern" }
+  ],
+  "scoring_rationale": {
+    "signal_name": "One sentence explaining why this scored the way it did, referencing a specific moment"
+  },
   "observations": [
     { "type": "positive|concern|neutral", "text": "observation" }
   ],
   "next_steps": ["action item 1", "action item 2"],
-  "follow_up_email_draft": "A short follow-up email the interviewer could send to the candidate"
-}`;
+  "follow_up_email_draft": "A short follow-up email the ${isSales ? "rep" : "interviewer"} could send"
+}
+
+GUIDELINES:
+- risk_factors: Include the top 2-3 concerns. Every risk factor MUST cite a specific transcript moment as evidence. Omit this array if there are no notable concerns.
+- scoring_rationale: Include one entry per signal that scored above 65 or below 40. Reference a specific moment in the transcript.
+- observations: 4-8 observations mixing positive, concern, and neutral. Be specific — name moments, not generalities.
+- verdict: Be decisive. Do not hedge with "Neutral" unless the data genuinely splits evenly.`;
 
   try {
     const message = await anthropic.messages.create({
@@ -258,7 +313,19 @@ Provide a debrief in the following JSON format. No preamble, no markdown fences:
     });
     const raw = message.content[0].text;
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    res.json({ success: true, debrief: JSON.parse(cleaned) });
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // Try extracting JSON from response
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        return res.status(500).json({ error: "Failed to parse debrief response", raw: cleaned });
+      }
+    }
+    res.json({ success: true, debrief: parsed });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
