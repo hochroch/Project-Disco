@@ -127,6 +127,32 @@ const PLAYBOOK_TEMPLATES = [
       "Evaluate preventive maintenance discipline and record-keeping habits",
     ],
   },
+  {
+    name: "Charter Bus Driver",
+    mindset: "interviewer",
+    roleTitle: "Charter Bus Driver",
+    enabledSignals: { followup:true, deception:true, sincerity:true, engagement:true, knowledge:true, stress:true, avoidance:true, latency:false, confidence:true, cultural:false, preparation:false, rapport:true, buying_intent:false, objection_detected:false, closing_opportunity:false },
+    objectives: [
+      "Verify CDL-B+ with passenger endorsement and clean driving record",
+      "Assess passenger safety awareness and pre-trip inspection habits",
+      "Gauge experience with long-haul routes, weather, and mountain driving",
+      "Evaluate customer service attitude and conflict de-escalation skills",
+      "Confirm comfort with overnight trips, irregular schedules, and group management",
+    ],
+  },
+  {
+    name: "Executive Recruiter",
+    mindset: "interviewer",
+    roleTitle: "Recruiter — Executive Search",
+    enabledSignals: { followup:true, deception:true, sincerity:true, engagement:true, knowledge:true, stress:false, avoidance:true, latency:false, confidence:true, cultural:true, preparation:true, rapport:true, buying_intent:false, objection_detected:false, closing_opportunity:false },
+    objectives: [
+      "Assess sourcing strategy for passive C-suite and VP-level candidates",
+      "Verify track record of closed executive placements and retention rates",
+      "Gauge ability to manage client relationships and competing stakeholder expectations",
+      "Evaluate candidate assessment methodology beyond resume screening",
+      "Confirm discretion, confidentiality practices, and professional network depth",
+    ],
+  },
 ];
 
 // ── SMALL COMPONENTS ──────────────────────────────────────────────────────
