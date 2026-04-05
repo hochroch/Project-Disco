@@ -1668,6 +1668,115 @@ export default function InterviewCopilot() {
             borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit",
             letterSpacing:3, cursor:"pointer",
           }}>← NEW SESSION</button>
+          {transcript.length > 0 && (
+            <button onClick={() => {
+              const lines = [`Interview Transcript — ${candidateName} (${roleTitle})`, `Duration: ${fmt(elapsed)}`, ""];
+              transcript.forEach(t => lines.push(`[${t.speaker}]: ${t.text}`));
+              const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `transcript-${candidateName.toLowerCase().replace(/\s+/g, "-")}.txt`;
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }} style={{
+              padding:"10px 24px", background:"transparent", border:`1px solid ${C.edge}`,
+              borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit",
+              letterSpacing:3, cursor:"pointer",
+            }}>↓ TRANSCRIPT</button>
+          )}
+          {debrief && (
+            <button onClick={() => {
+              const vc = { "Strong Yes":"#22c55e", "Lean Yes":"#86efac", "Neutral":"#94a3b8", "Lean No":"#fca5a5", "Strong No":"#ef4444" };
+              const verdictColor = vc[debrief.verdict] || "#94a3b8";
+              const scoreColor = v => v >= 65 ? "#22c55e" : v <= 40 ? "#ef4444" : "#94a3b8";
+              const obsColor = t => t === "positive" ? "#22c55e" : t === "concern" ? "#ef4444" : "#94a3b8";
+              const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+              const scoresHtml = Object.entries(scores).map(([key, val]) => {
+                const sig = SIGNAL_TYPES[key]; if (!sig) return "";
+                const rationale = debrief.scoring_rationale?.[key];
+                return `<tr>
+                  <td style="padding:8px 12px;border-bottom:1px solid #252538;color:${scoreColor(val)};font-weight:700;width:50px;text-align:center;">${val}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #252538;color:#c4c9d4;">${esc(sig.label)}${rationale ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">${esc(rationale)}</div>` : ""}</td>
+                </tr>`;
+              }).join("");
+
+              const risksHtml = (debrief.risk_factors || []).map(rf => {
+                const sig = SIGNAL_TYPES[rf.signal];
+                return `<div style="margin-bottom:6px;padding:10px 14px;background:#1a0a0a;border-left:3px solid #f87171;border-radius:0 4px 4px 0;">
+                  <div style="font-size:10px;letter-spacing:1px;color:#f87171;margin-bottom:4px;">${sig ? `${esc(sig.label.toUpperCase())}` : esc((rf.signal||"").toUpperCase())} — ${rf.score}</div>
+                  <div style="font-size:12px;color:#c4c9d4;line-height:1.7;font-style:italic;">"${esc(rf.evidence)}"</div>
+                </div>`;
+              }).join("");
+
+              const obsHtml = (debrief.observations || []).map(obs =>
+                `<div style="margin-bottom:6px;padding:10px 14px;background:#161622;border-left:3px solid ${obsColor(obs.type)};border-radius:0 4px 4px 0;">
+                  <span style="font-size:12px;color:#c4c9d4;line-height:1.7;">${esc(obs.text)}</span>
+                </div>`
+              ).join("");
+
+              const stepsHtml = (debrief.next_steps || []).map(s =>
+                `<div style="display:flex;gap:10px;margin-bottom:6px;padding:9px 12px;background:#161622;border:1px solid #252538;border-radius:4px;">
+                  <span style="color:#60a5fa;flex-shrink:0;">→</span>
+                  <span style="font-size:12px;color:#c4c9d4;">${esc(s)}</span>
+                </div>`
+              ).join("");
+
+              const emailHtml = debrief.follow_up_email_draft
+                ? `<div style="margin-bottom:28px;">
+                    <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Follow-Up Email Draft</div>
+                    <div style="padding:16px;background:#161622;border:1px solid #252538;border-radius:4px;font-size:12px;color:#c4c9d4;line-height:1.8;white-space:pre-wrap;">${esc(debrief.follow_up_email_draft)}</div>
+                  </div>` : "";
+
+              const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Debrief — ${esc(candidateName)}</title></head>
+<body style="margin:0;padding:0;background:#0d0d14;font-family:'Courier New',monospace;">
+<div style="max-width:680px;margin:0 auto;padding:32px 24px;">
+  <div style="font-size:9px;letter-spacing:5px;color:#6b7280;margin-bottom:8px;">INTERVIEW DEBRIEF</div>
+  <h1 style="font-size:24px;font-weight:700;margin:0 0 4px;color:#f1f5f9;">${esc(candidateName)}</h1>
+  <div style="font-size:12px;color:#6b7280;margin-bottom:24px;">${esc(roleTitle)} · Duration: ${fmt(elapsed)}</div>
+
+  <div style="padding:14px 20px;margin-bottom:20px;border-radius:6px;background:#161622;border:1px solid #252538;display:flex;align-items:center;gap:16px;">
+    <div>
+      <div style="font-size:9px;letter-spacing:3px;color:#6b7280;margin-bottom:4px;">HIRING VERDICT</div>
+      <div style="font-size:20px;font-weight:700;color:${verdictColor};">${esc(debrief.verdict)}</div>
+    </div>
+    <div style="margin-left:auto;font-size:12px;color:#6b7280;max-width:400px;line-height:1.6;">${esc(debrief.headline)}</div>
+  </div>
+
+  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Signal Scores</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:20px;background:#161622;border:1px solid #252538;border-radius:6px;">
+    ${scoresHtml}
+  </table>
+
+  ${risksHtml ? `<div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Risk Factors</div><div style="margin-bottom:20px;">${risksHtml}</div>` : ""}
+
+  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Observations</div>
+  <div style="margin-bottom:20px;">${obsHtml}</div>
+
+  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Recommended Next Steps</div>
+  <div style="margin-bottom:20px;">${stepsHtml}</div>
+
+  ${emailHtml}
+
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #252538;font-size:10px;color:#6b728060;letter-spacing:2px;">GENERATED BY INTERVIEW COPILOT</div>
+</div>
+</body></html>`;
+
+              const blob = new Blob([html], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `debrief-${candidateName.toLowerCase().replace(/\s+/g, "-")}.html`;
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }} style={{
+              padding:"10px 24px", background:"transparent", border:`1px solid ${C.edge}`,
+              borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit",
+              letterSpacing:3, cursor:"pointer",
+            }}>↓ REPORT</button>
+          )}
         </div>
       </div>
     </div>
