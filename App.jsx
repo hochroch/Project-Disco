@@ -247,6 +247,9 @@ export default function InterviewCopilot() {
   const isPortrait = winH > winW;
   const [showSignals, setShowSignals] = useState(true);
 
+  // ── ONBOARDING ──────────────────────────────────────────────────────────
+  const [onboardingStep, setOnboardingStep] = useState(null); // null = not showing, 1/2/3 = step
+
   // ── AUTH ─────────────────────────────────────────────────────────────────
   const [supaUser, setSupaUser]     = useState(null);
   const [userRole, setUserRole]     = useState(null);
@@ -361,6 +364,14 @@ export default function InterviewCopilot() {
     await SUPA.auth.signOut();
     setPhase("setup");
   }
+
+  // ── ONBOARDING — show on first login ──────────────────────────────────────
+  useEffect(() => {
+    if (!supaUser) return;
+    if (!localStorage.getItem("disco-onboarded")) {
+      setOnboardingStep(1);
+    }
+  }, [supaUser]);
 
   // ── PLAYBOOKS — load from DB when user logs in ────────────────────────────
   useEffect(() => {
@@ -1070,6 +1081,128 @@ export default function InterviewCopilot() {
   if (phase === "setup") return (
     <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:"32px 24px" }}>
       <style>{GLOBAL_STYLES}</style>
+
+      {/* ── ONBOARDING OVERLAY ── */}
+      {onboardingStep !== null && (() => {
+        const dismissOnboarding = () => {
+          localStorage.setItem("disco-onboarded", "true");
+          setOnboardingStep(null);
+        };
+        const steps = [
+          {
+            heading: "Welcome to Disco",
+            body: "Start by choosing a mindset \u2014 Interview or Sales \u2014 and loading a playbook. Each playbook pre-configures the role, objectives, and signal modules for your session.",
+            visual: (
+              <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:18, marginBottom:6 }}>
+                {["INTERVIEW", "SALES"].map(label => (
+                  <span key={label} style={{
+                    padding:"6px 18px", borderRadius:4, fontSize:10, letterSpacing:2, fontWeight:600,
+                    border:`1px solid ${C.edge}`, background:C.surfaceAlt, color:C.muted,
+                  }}>{label}</span>
+                ))}
+              </div>
+            ),
+          },
+          {
+            heading: "During the Session",
+            body: "The center panel shows suggested probes \u2014 verbatim questions you can ask. The right panel tracks behavioral signals in real-time. Everything updates every 20 seconds automatically.",
+            visual: (
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:0, marginTop:18, marginBottom:6 }}>
+                <div style={{
+                  flex:1, padding:"10px 14px", background:"#0c1d2e", border:"1px solid #0ea5e940",
+                  borderRadius:"4px 0 0 4px", textAlign:"center",
+                }}>
+                  <div style={{ fontSize:9, letterSpacing:3, color:"#38bdf8", marginBottom:4 }}>PROBES</div>
+                  <div style={{ fontSize:11, color:C.muted }}>\u2190 center</div>
+                </div>
+                <div style={{ width:1, background:C.edge, alignSelf:"stretch" }}/>
+                <div style={{
+                  flex:1, padding:"10px 14px", background:C.surfaceAlt, border:`1px solid ${C.edge}`,
+                  borderRadius:"0 4px 4px 0", textAlign:"center",
+                }}>
+                  <div style={{ fontSize:9, letterSpacing:3, color:"#fcd34d", marginBottom:4 }}>SIGNALS</div>
+                  <div style={{ fontSize:11, color:C.muted }}>right \u2192</div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            heading: "Mic & Transcription",
+            body: "The mic auto-starts and transcribes the conversation via Deepgram. You can also type entries manually. When you end the session, you\u2019ll get a full AI debrief with verdict, observations, and a follow-up email draft.",
+            visual: (
+              <div style={{ textAlign:"center", marginTop:18, marginBottom:6 }}>
+                <span style={{ fontSize:36, display:"inline-block" }}>\ud83c\udf99</span>
+              </div>
+            ),
+          },
+        ];
+        const step = steps[onboardingStep - 1];
+        const isLast = onboardingStep === 3;
+        return (
+          <div style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:9999,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <div style={{
+              background:C.surface, border:`1px solid ${C.edge}`, borderRadius:10,
+              padding:"32px 36px", maxWidth:460, width:"90%", position:"relative",
+              animation:"fadeUp .4s ease",
+            }}>
+              {/* Skip button */}
+              <button onClick={dismissOnboarding} style={{
+                position:"absolute", top:14, right:16, background:"none", border:"none",
+                color:C.muted, fontSize:10, letterSpacing:2, fontFamily:"inherit", cursor:"pointer",
+              }}>SKIP</button>
+
+              {/* Step dots */}
+              <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:22 }}>
+                {[1,2,3].map(n => (
+                  <div key={n} style={{
+                    width:8, height:8, borderRadius:"50%",
+                    background: n === onboardingStep ? "#3b82f6" : "transparent",
+                    border: `1.5px solid ${n === onboardingStep ? "#3b82f6" : C.muted}`,
+                    transition:"all .2s",
+                  }}/>
+                ))}
+              </div>
+
+              {/* Heading */}
+              <h2 style={{ fontSize:20, fontWeight:600, color:C.bright, margin:"0 0 12px", textAlign:"center" }}>
+                {step.heading}
+              </h2>
+
+              {/* Body */}
+              <p style={{ fontSize:13, color:C.body, lineHeight:1.7, margin:"0 0 4px", textAlign:"center" }}>
+                {step.body}
+              </p>
+
+              {/* Visual */}
+              {step.visual}
+
+              {/* Navigation */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:22 }}>
+                {onboardingStep > 1 ? (
+                  <button onClick={() => setOnboardingStep(s => s - 1)} style={{
+                    padding:"8px 18px", background:"transparent", border:`1px solid ${C.edge}`,
+                    borderRadius:4, color:C.muted, fontSize:10, letterSpacing:2,
+                    fontFamily:"inherit", cursor:"pointer",
+                  }}>BACK</button>
+                ) : <div/>}
+                <button onClick={() => {
+                  if (isLast) { dismissOnboarding(); }
+                  else { setOnboardingStep(s => s + 1); }
+                }} style={{
+                  padding:"8px 22px", border:"none", borderRadius:4,
+                  background: isLast ? "#166534" : "#1d4ed8",
+                  color:"#fff", fontSize:10, letterSpacing:2, fontWeight:600,
+                  fontFamily:"inherit", cursor:"pointer",
+                }}>{isLast ? "GET STARTED" : "NEXT"}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ maxWidth:800, margin:"0 auto", animation:"fadeUp .4s ease" }}>
         <div style={{ marginBottom:32, borderBottom:`1px solid ${C.edge}`, paddingBottom:20 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
