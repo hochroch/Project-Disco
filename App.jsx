@@ -312,6 +312,7 @@ export default function InterviewCopilot() {
   const micDeviceIdRef  = useRef("");   // always-current device id (avoids stale closure in toggleMic)
   const runAnalysisRef  = useRef(null); // always-current runAnalysis (avoids stale closure in setInterval/ws)
   const micWsRef        = useRef(null); // WebSocket to /mic relay
+  const importFileRef   = useRef(null); // hidden file input for playbook import
   const recorderRef     = useRef(null); // MediaRecorder instance
   const interimRef      = useRef("");   // accumulates interim transcript text
   const speakerMapRef   = useRef({});   // { speakerId: "INTERVIEWER"|"CANDIDATE" }
@@ -671,6 +672,54 @@ export default function InterviewCopilot() {
     if (pb?._id) await SUPA.from("disco_playbooks").delete().eq("id", pb._id);
     await loadPlaybooks();
     if (selectedPlaybook === name) setSelectedPlaybook("");
+  }
+
+  function exportPlaybook() {
+    const pb = savedPlaybooks.find(p => p.name === selectedPlaybook);
+    if (!pb) return;
+    const exportObj = {
+      name: pb.name,
+      mindset: pb.mindset,
+      roleTitle: pb.roleTitle,
+      enabledSignals: pb.enabledSignals,
+      objectives: pb.objectives,
+    };
+    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `disco-playbook-${pb.name.toLowerCase().replace(/\s+/g, "-")}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function importPlaybook(e) {
+    const file = e.target.files?.[0];
+    if (!file || !supaUser) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (typeof parsed.name !== "string" || typeof parsed.mindset !== "string" || !Array.isArray(parsed.objectives)) {
+        alert("Invalid playbook file");
+        return;
+      }
+      const row = {
+        created_by: supaUser.id, created_by_email: supaUser.email,
+        name: parsed.name, mindset: parsed.mindset,
+        role_title: parsed.roleTitle || "",
+        enabled_signals: parsed.enabledSignals || {},
+        objectives: parsed.objectives,
+        is_shared: true, updated_at: new Date().toISOString(),
+      };
+      await SUPA.from("disco_playbooks").insert(row);
+      await loadPlaybooks();
+    } catch {
+      alert("Invalid playbook file");
+    }
+    // reset so the same file can be re-imported
+    if (importFileRef.current) importFileRef.current.value = "";
   }
 
   // ── SPEAKER RESOLUTION (Deepgram diarization) ────────────────────────────
@@ -1252,6 +1301,19 @@ export default function InterviewCopilot() {
             color: selectedPlaybook ? "#f87171" : C.muted,
             fontSize:9, fontFamily:"inherit", cursor: selectedPlaybook ? "pointer" : "default",
           }}>DEL</button>
+          <button onClick={exportPlaybook} disabled={!selectedPlaybook} style={{
+            padding:"5px 12px", background:"transparent",
+            border:`1px solid ${C.edge}`, borderRadius:3,
+            color:C.muted, fontSize:9, fontFamily:"inherit", letterSpacing:2,
+            cursor: selectedPlaybook ? "pointer" : "default",
+          }}>{"\u2B07"}</button>
+          <button onClick={() => importFileRef.current?.click()} style={{
+            padding:"5px 12px", background:"transparent",
+            border:`1px solid ${C.edge}`, borderRadius:3,
+            color:C.muted, fontSize:9, fontFamily:"inherit", letterSpacing:2,
+            cursor:"pointer",
+          }}>{"\u2B06"}</button>
+          <input ref={importFileRef} type="file" accept=".json" onChange={importPlaybook} style={{ display:"none" }}/>
           <div style={{ width:1, height:20, background:C.edge, flexShrink:0 }}/>
           <input
             value={playbookName}
