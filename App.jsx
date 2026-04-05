@@ -474,6 +474,7 @@ export default function InterviewCopilot() {
   const interimRef      = useRef("");   // accumulates interim transcript text
   const speakerMapRef   = useRef({});   // { speakerId: "INTERVIEWER"|"CANDIDATE" }
   const speakersSeenRef = useRef([]);   // ordered by first appearance; index 0 = INTERVIEWER
+  const micActiveRef    = useRef(false); // always-current micActive (avoids stale closure in toggleMic)
 
   const fmt = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
@@ -761,6 +762,7 @@ export default function InterviewCopilot() {
   // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
   useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+  useEffect(() => { micActiveRef.current = micActive; }, [micActive]);
 
   // ── KEYBOARD SHORTCUTS (live phase) ────────────────────────────────────��─
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -794,6 +796,25 @@ export default function InterviewCopilot() {
       buying_intent:        { high: "High buying intent signals detected.", low: "Low buying intent — prospect may not be ready." },
       objection_detected:   { high: "Objection detected — address directly.", low: "" },
       closing_opportunity:  { high: "Strong closing opportunity — consider asking for commitment.", low: "Prospect not yet at close." },
+      // Negotiation signals
+      anchor_detection:    { high: "Strong anchor detected — counterpart set a reference point.", low: "No significant anchoring attempts." },
+      concession_tracking: { high: "Counterpart making more concessions — you have momentum.", low: "You're giving more than getting — hold the line." },
+      leverage_signals:    { high: "Counterpart has strong leverage — tread carefully.", low: "You have leverage — press your advantage." },
+      emotional_pressure:  { high: "Emotional pressure tactics detected — stay rational.", low: "" },
+      zone_of_agreement:   { high: "Parties converging — close to a deal.", low: "Far apart — significant gap remains." },
+      commitment_language: { high: "Firm commitment language — they're ready to agree.", low: "Lots of hedging — no real commitment yet." },
+      // Coaching signals
+      psychological_safety:      { high: "Employee feels safe — sharing openly.", low: "Employee shutting down — increase safety." },
+      accountability_acceptance: { high: "Employee taking ownership of the issue.", low: "Deflecting responsibility — probe deeper." },
+      defensiveness:             { high: "High defensiveness — consider de-escalating.", low: "" },
+      growth_mindset:            { high: "Growth mindset present — open to change.", low: "Fixed mindset signals — 'that's just how I am.'" },
+      action_commitment:         { high: "Concrete commitments being made.", low: "No specific action items agreed — push for specifics." },
+      // Discovery signals
+      coverage_completeness:     { high: "Thorough coverage — most areas explored.", low: "Major discovery gaps remain — broaden questions." },
+      symptom_severity:          { high: "Critical issue — high urgency.", low: "Minor issue — lower priority." },
+      root_cause_proximity:      { high: "Root cause identified or nearly identified.", low: "Still circling surface symptoms." },
+      client_trust:              { high: "Client sharing openly and candidly.", low: "Client guarded — build more trust." },
+      recommendation_readiness:  { high: "Enough info to make a recommendation.", low: "Too many unknowns — need more discovery." },
     };
     return labels[type]?.[dir] || summary || `${type} score: ${score}`;
   }
@@ -1033,7 +1054,7 @@ export default function InterviewCopilot() {
 
   // ── MIC — Deepgram WebSocket streaming via backend relay ────────────────
   async function toggleMic() {
-    if (micActive) {
+    if (micActiveRef.current) {
       // ── STOP ──────────────────────────────────────────────────────────────
       recorderRef.current?.stop();
       recorderRef.current?.stream?.getTracks().forEach(t => t.stop());
