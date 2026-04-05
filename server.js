@@ -64,8 +64,9 @@ KNOWLEDGE SCORING for this role:
 - <40: Wrong facts, incorrect procedures, or clearly has not worked on these systems hands-on
 `;
 
-function buildSystemPrompt(config) {
+function buildSystemPrompt(config, sessionContext = {}) {
   const { candidateName, roleTitle, objectives, enabledSignals, mindset = "interviewer" } = config;
+  const { elapsed = 0, objectivesCompleted = [] } = sessionContext;
   const isSales = mindset === "sales";
   const isDiesel = !isSales && isDieselRole(roleTitle);
 
@@ -149,7 +150,11 @@ REQUIRED OUTPUT FORMAT — respond ONLY with this JSON, no preamble, no markdown
   "signals": {
 ${activeSignalLines}
   },
-  "summary": "One terse sentence on what just happened and what matters most right now"
+  "summary": "One terse sentence on what just happened and what matters most right now",
+  "coaching": {
+    "time_check": "Brief coaching note about time/coverage if relevant, or null",
+    "pacing": "slow | normal | rushed"
+  }
 }
 
 ${probeGuidelines}
@@ -160,6 +165,15 @@ SIGNAL GUIDELINES:
 - A score of 50 is neutral/unknown. Below 40 is notable. Above 70 is notable.
 - For boolean fields (latency_flag), use true or false only.
 - Base scores on what you have actually heard. If insufficient data, return 50.
+
+COACHING GUIDELINES:
+- Include coaching.time_check only when actionable — e.g. when >50% of time has passed but <30% of objectives are covered, or when the interview is running long (>40 min). Set pacing based on talk-to-listen ratio and objective coverage rate. Return null for time_check if everything looks on track.
+- coaching.pacing must be exactly one of: "slow", "normal", "rushed".
+
+SESSION AWARENESS:
+- Elapsed: ${elapsed}s (${Math.round(elapsed / 60)} minutes)
+- Objectives completed: ${objectivesCompleted.length} of ${objectives.length}
+- Uncovered: ${objectives.filter(o => !objectivesCompleted.includes(o)).join('; ')}
 
 RUNNING CONTEXT:
 You will receive the full conversation so far with speaker labels. The most recent exchanges matter most for probes; use full history for signal scoring.`;
@@ -174,8 +188,10 @@ function formatTranscript(transcript) {
 // POST /analyze — live analysis (SSE streaming)
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/analyze", async (req, res) => {
-  const { config, transcript, trigger = "periodic" } = req.body;
+  const { config, transcript, trigger = "periodic", elapsed = 0, objectivesCompleted = [] } = req.body;
   if (!config || !transcript) return res.status(400).json({ error: "Missing config or transcript" });
+
+  const sessionContext = { elapsed, objectivesCompleted };
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -202,7 +218,7 @@ app.post("/analyze", async (req, res) => {
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-5",
       max_tokens: 1024,
-      system: buildSystemPrompt(config),
+      system: buildSystemPrompt(config, sessionContext),
       messages: [{ role: "user", content: userMessage }],
     });
 

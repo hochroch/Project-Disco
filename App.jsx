@@ -296,6 +296,7 @@ export default function InterviewCopilot() {
   const [emailTo, setEmailTo]       = useState("");
   const [emailStatus, setEmailStatus] = useState("idle"); // idle | sending | sent | error
   const [emailError, setEmailError] = useState("");
+  const [pacing, setPacing]             = useState("normal"); // "slow" | "normal" | "rushed"
   const [audioDevices, setAudioDevices] = useState([]);
   const [micDeviceId, setMicDeviceId]   = useState("");
 
@@ -304,6 +305,7 @@ export default function InterviewCopilot() {
   const analyzeRef      = useRef(null); // abort controller
   const periodicRef     = useRef(null);
   const lastAnalyzedRef = useRef(0);    // timestamp of last analysis start (for utterance_end cooldown)
+  const elapsedRef        = useRef(0);   // always-current elapsed seconds (avoids stale closure)
   const micDeviceIdRef  = useRef("");   // always-current device id (avoids stale closure in toggleMic)
   const runAnalysisRef  = useRef(null); // always-current runAnalysis (avoids stale closure in setInterval/ws)
   const micWsRef        = useRef(null); // WebSocket to /mic relay
@@ -476,7 +478,11 @@ export default function InterviewCopilot() {
       const res = await fetch(`${API_BASE}/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config, transcript, trigger }),
+        body: JSON.stringify({
+          config, transcript, trigger,
+          elapsed: elapsedRef.current,
+          objectivesCompleted: objectives.filter(o => o.done).map(o => o.text),
+        }),
         signal: analyzeRef.current.signal,
       });
 
@@ -535,6 +541,21 @@ export default function InterviewCopilot() {
                 }
               }
 
+              // Handle coaching response
+              const coaching = event.data.coaching;
+              if (coaching) {
+                if (coaching.pacing) setPacing(coaching.pacing);
+                if (coaching.time_check) {
+                  const coachingId = Date.now() + Math.random();
+                  setProbes(prev => [
+                    { text: coaching.time_check, id: coachingId, type: "coaching" },
+                    ...prev,
+                  ].slice(0, 10));
+                  // Auto-dismiss coaching cards after 30 seconds
+                  setTimeout(() => setDismissed(p => new Set([...p, coachingId])), 30000);
+                }
+              }
+
               if (summary) setLastSummary(summary);
               setAnalyzeStatus("done");
             }
@@ -557,6 +578,7 @@ export default function InterviewCopilot() {
   // Keep ref always current so setInterval/ws handlers avoid stale closures
   // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
   useEffect(() => { runAnalysisRef.current = runAnalysis; }, [runAnalysis]);
+  useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
 
   // ── KEYBOARD SHORTCUTS (live phase) ────────────────────────────────────��─
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -665,7 +687,7 @@ export default function InterviewCopilot() {
     sessionStartRef.current = new Date().toISOString();
     setPhase("live");
     setTranscript([]); setProbes([]); setSignals([]);
-    setDismissed(new Set()); setScores({}); setElapsed(0);
+    setDismissed(new Set()); setScores({}); setElapsed(0); setPacing("normal");
     setAnalyzeStatus("idle"); setLastSummary(""); setAnalyzeError("");
     setDebrief(null);
     setEmailTo(""); setEmailStatus("idle"); setEmailError("");
@@ -676,7 +698,20 @@ export default function InterviewCopilot() {
     setMonitorSignal(null);
     setViewMode(window.innerWidth < 1100 ? "monitor" : "dashboard");
 
-    timerRef.current = setInterval(() => setElapsed(e => e+1), 1000);
+    const milestones = new Set([900, 1800, 2700]); // 15min, 30min, 45min
+    const milestoneLabels = { 900: "15 minutes", 1800: "30 minutes", 2700: "45 minutes" };
+    timerRef.current = setInterval(() => setElapsed(e => {
+      const next = e + 1;
+      if (milestones.has(next)) {
+        const coachingId = Date.now() + Math.random();
+        setProbes(prev => [
+          { text: `You've been in session for ${milestoneLabels[next]}.`, id: coachingId, type: "coaching" },
+          ...prev,
+        ].slice(0, 10));
+        setTimeout(() => setDismissed(p => new Set([...p, coachingId])), 30000);
+      }
+      return next;
+    }), 1000);
 
     // Periodic analysis every 20 seconds — use ref to avoid stale closure
     periodicRef.current = setInterval(() => {
@@ -1466,6 +1501,12 @@ export default function InterviewCopilot() {
         <span style={{ fontSize:11, color:C.edge, marginLeft:4 }}>·</span>
         <span style={{ fontSize:12, color:C.muted }}>{roleTitle}</span>
         <span style={{ fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums", marginLeft:"auto" }}>{fmt(elapsed)}</span>
+        <span style={{
+          width:8, height:8, borderRadius:"50%", flexShrink:0,
+          background: pacing === "slow" ? "#f59e0b" : pacing === "rushed" ? "#f87171" : "#4ade80",
+          boxShadow: `0 0 6px ${pacing === "slow" ? "#f59e0b" : pacing === "rushed" ? "#f87171" : "#4ade80"}`,
+          transition:"all 0.5s ease",
+        }} title={`Pacing: ${pacing}`}/>
         <button onClick={() => setViewMode("dashboard")} style={{
           padding:"6px 12px", background:"transparent", border:`1px solid ${C.edge}`,
           borderRadius:3, color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
@@ -1611,6 +1652,12 @@ export default function InterviewCopilot() {
             </span>
           )}
           <span style={{ fontSize:12, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{fmt(elapsed)}</span>
+          <span style={{
+            width:8, height:8, borderRadius:"50%", flexShrink:0,
+            background: pacing === "slow" ? "#f59e0b" : pacing === "rushed" ? "#f87171" : "#4ade80",
+            boxShadow: `0 0 6px ${pacing === "slow" ? "#f59e0b" : pacing === "rushed" ? "#f87171" : "#4ade80"}`,
+            transition:"all 0.5s ease",
+          }} title={`Pacing: ${pacing}`}/>
           <button onClick={() => setShowShortcuts(s => !s)} style={{
             padding:"8px 10px", background:"transparent", border:`1px solid ${C.edge}`,
             borderRadius:4, color:C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer",
@@ -1664,39 +1711,44 @@ export default function InterviewCopilot() {
           </div>
         )}
 
-        {activeProbes.map(probe => (
-          <div key={probe.id} style={{
-            padding:"18px 20px",
-            background:"#0c1d2e",
-            border:"1px solid #0ea5e940",
-            borderLeft:"4px solid #0ea5e9",
-            borderRadius:"0 8px 8px 0",
-            display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14,
-            animation:"probeIn .3s ease",
-          }}>
-            <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
-              <span style={{ fontSize:22, color:"#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>→</span>
-              <span style={{ fontSize:17, color:"#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
+        {activeProbes.map(probe => {
+          const isCoaching = probe.type === "coaching";
+          return (
+            <div key={probe.id} style={{
+              padding:"18px 20px",
+              background: isCoaching ? "#1a1708" : "#0c1d2e",
+              border: isCoaching ? "1px solid #f59e0b40" : "1px solid #0ea5e940",
+              borderLeft: isCoaching ? "4px solid #f59e0b" : "4px solid #0ea5e9",
+              borderRadius:"0 8px 8px 0",
+              display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14,
+              animation:"probeIn .3s ease",
+            }}>
+              <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
+                <span style={{ fontSize:22, color: isCoaching ? "#fcd34d" : "#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>{isCoaching ? "\u23F1" : "\u2192"}</span>
+                <span style={{ fontSize:17, color: isCoaching ? "#fcd34d" : "#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
+                {!isCoaching && (
+                  <button onClick={() => { navigator.clipboard.writeText(probe.text); }} style={{
+                    background:"none", border:"none", color:C.muted,
+                    cursor:"pointer", fontSize:14, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+                  }}
+                    onMouseEnter={e=>e.target.style.color="#38bdf8"}
+                    onMouseLeave={e=>e.target.style.color=C.muted}
+                    title="Copy to clipboard"
+                  >⎘</button>
+                )}
+                <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
+                  background:"none", border:"none", color:C.muted,
+                  cursor:"pointer", fontSize:20, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+                }}
+                  onMouseEnter={e=>e.target.style.color= isCoaching ? "#fcd34d" : "#38bdf8"}
+                  onMouseLeave={e=>e.target.style.color=C.muted}
+                >×</button>
+              </div>
             </div>
-            <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
-              <button onClick={() => { navigator.clipboard.writeText(probe.text); }} style={{
-                background:"none", border:"none", color:C.muted,
-                cursor:"pointer", fontSize:14, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
-              }}
-                onMouseEnter={e=>e.target.style.color="#38bdf8"}
-                onMouseLeave={e=>e.target.style.color=C.muted}
-                title="Copy to clipboard"
-              >⎘</button>
-              <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
-                background:"none", border:"none", color:C.muted,
-                cursor:"pointer", fontSize:20, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
-              }}
-                onMouseEnter={e=>e.target.style.color="#38bdf8"}
-                onMouseLeave={e=>e.target.style.color=C.muted}
-              >×</button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── RIGHT: SIGNALS PANEL ── */}
