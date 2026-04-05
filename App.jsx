@@ -546,6 +546,19 @@ export default function InterviewCopilot() {
         name: p.name, mindset: p.mindset, roleTitle: p.role_title,
         enabledSignals: p.enabled_signals, objectives: p.objectives,
       })));
+      // Seed any new templates that don't exist yet for existing users
+      const existingNames = new Set(data.map(p => p.name));
+      const missing = PLAYBOOK_TEMPLATES.filter(t => !existingNames.has(t.name));
+      if (missing.length > 0) {
+        const rows = missing.map(t => ({
+          created_by: supaUser.id, created_by_email: supaUser.email,
+          name: t.name, mindset: t.mindset, role_title: t.roleTitle,
+          enabled_signals: t.enabledSignals, objectives: t.objectives, is_shared: true,
+        }));
+        await SUPA.from("disco_playbooks").insert(rows);
+        loadPlaybooks(); // re-fetch to include new ones
+        return; // avoid double-setting state
+      }
     } else {
       // First login — seed default templates for this user
       const rows = PLAYBOOK_TEMPLATES.map(t => ({
@@ -870,7 +883,13 @@ export default function InterviewCopilot() {
         objectives: parsed.objectives,
         is_shared: true, updated_at: new Date().toISOString(),
       };
-      await SUPA.from("disco_playbooks").insert(row);
+      // Check for existing playbook with same name (upsert instead of duplicate)
+      const existing = savedPlaybooks.find(p => p.name === parsed.name);
+      if (existing?._id) {
+        await SUPA.from("disco_playbooks").update(row).eq("id", existing._id);
+      } else {
+        await SUPA.from("disco_playbooks").insert(row);
+      }
       await loadPlaybooks();
     } catch {
       alert("Invalid playbook file");
@@ -953,7 +972,7 @@ export default function InterviewCopilot() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          config: { candidateName, roleTitle, objectives: objectives.map(o => o.text) },
+          config: { candidateName, roleTitle, objectives: objectives.map(o => o.text), mindset },
           transcript,
           signals: scores,
         }),
@@ -1844,7 +1863,7 @@ export default function InterviewCopilot() {
           )}
           {debrief && (
             <button onClick={() => {
-              const vc = { "Strong Yes":"#22c55e", "Lean Yes":"#86efac", "Neutral":"#94a3b8", "Lean No":"#fca5a5", "Strong No":"#ef4444" };
+              const vc = { "Strong Yes":"#22c55e", "Lean Yes":"#86efac", "Neutral":"#94a3b8", "Lean No":"#fca5a5", "Strong No":"#ef4444", "Strong Progress":"#22c55e", "Making Progress":"#86efac", "Stalled":"#94a3b8", "Resistant":"#fca5a5", "Escalation Needed":"#ef4444", "Clear Diagnosis":"#22c55e", "Partial Clarity":"#86efac", "Needs Follow-Up":"#94a3b8", "Inconclusive":"#fca5a5", "Misaligned Expectations":"#ef4444" };
               const verdictColor = vc[debrief.verdict] || "#94a3b8";
               const scoreColor = v => v >= 65 ? "#22c55e" : v <= 40 ? "#ef4444" : "#94a3b8";
               const obsColor = t => t === "positive" ? "#22c55e" : t === "concern" ? "#ef4444" : "#94a3b8";

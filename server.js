@@ -461,6 +461,12 @@ app.post("/email-debrief", async (req, res) => {
     "Strong Yes": "#22c55e", "Lean Yes": "#86efac",
     "Neutral": "#94a3b8",
     "Lean No": "#fca5a5", "Strong No": "#ef4444",
+    "Strong Progress": "#22c55e", "Making Progress": "#86efac",
+    "Stalled": "#94a3b8",
+    "Resistant": "#fca5a5", "Escalation Needed": "#ef4444",
+    "Clear Diagnosis": "#22c55e", "Partial Clarity": "#86efac",
+    "Needs Follow-Up": "#94a3b8",
+    "Inconclusive": "#fca5a5", "Misaligned Expectations": "#ef4444",
   }[debrief.verdict] || "#94a3b8";
 
   const signalRows = Object.entries(scores || {}).map(([key, val]) => {
