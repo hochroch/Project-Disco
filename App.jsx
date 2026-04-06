@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const API_BASE  = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:3001`;
@@ -460,6 +468,17 @@ export default function InterviewCopilot() {
   const [audioDevices, setAudioDevices] = useState([]);
   const [micDeviceId, setMicDeviceId]   = useState("");
 
+  // Resume / Application viewer
+  const [resumeFile, setResumeFile]       = useState(null);
+  const [resumeUrl, setResumeUrl]         = useState(null);
+  const [resumeType, setResumeType]       = useState(null);   // "pdf"|"docx"|"doc"|"image"|"text"
+  const [resumeName, setResumeName]       = useState("");
+  const [resumeHtml, setResumeHtml]       = useState("");
+  const [pdfNumPages, setPdfNumPages]     = useState(null);
+  const [pdfPage, setPdfPage]             = useState(1);
+  const [pdfScale, setPdfScale]           = useState(1.2);
+  const [rightPanelTab, setRightPanelTab] = useState("probes");
+
   const timerRef      = useRef(null);
   const tickerRef     = useRef(null);
   const analyzeRef      = useRef(null); // abort controller
@@ -470,6 +489,7 @@ export default function InterviewCopilot() {
   const runAnalysisRef  = useRef(null); // always-current runAnalysis (avoids stale closure in setInterval/ws)
   const micWsRef        = useRef(null); // WebSocket to /mic relay
   const importFileRef   = useRef(null); // hidden file input for playbook import
+  const resumeInputRef  = useRef(null); // hidden file input for resume upload
   const recorderRef     = useRef(null); // MediaRecorder instance
   const interimRef      = useRef("");   // accumulates interim transcript text
   const speakerMapRef   = useRef({});   // { speakerId: "INTERVIEWER"|"CANDIDATE" }
@@ -820,6 +840,48 @@ export default function InterviewCopilot() {
   }
 
   // ── MINDSET SWITCH ───────────────────────────────────────────────────────
+  // ── RESUME / APPLICATION UPLOAD ──────────────────────────────────────────
+  function handleResumeUpload(file) {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { alert("File too large. Maximum 25MB."); return; }
+    const ext = file.name.toLowerCase().split(".").pop();
+    let type;
+    if (ext === "pdf") type = "pdf";
+    else if (ext === "docx") type = "docx";
+    else if (ext === "doc") type = "doc";
+    else if (["jpg","jpeg","png","gif","webp"].includes(ext)) type = "image";
+    else if (["txt","rtf","md"].includes(ext)) type = "text";
+    else { alert("Unsupported file type."); return; }
+
+    if (resumeUrl) URL.revokeObjectURL(resumeUrl);
+    const url = URL.createObjectURL(file);
+    setResumeFile(file); setResumeUrl(url); setResumeType(type);
+    setResumeName(file.name); setResumeHtml(""); setPdfPage(1); setPdfNumPages(null);
+
+    if (type === "docx") {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.convertToHtml({ arrayBuffer: e.target.result });
+        setResumeHtml(result.value);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    if (type === "text") {
+      const reader = new FileReader();
+      reader.onload = (e) => setResumeHtml(e.target.result);
+      reader.readAsText(file);
+    }
+  }
+
+  function clearResume() {
+    if (resumeUrl) URL.revokeObjectURL(resumeUrl);
+    setResumeFile(null); setResumeUrl(null); setResumeType(null);
+    setResumeName(""); setResumeHtml(""); setPdfNumPages(null); setPdfPage(1);
+  }
+
+  const hasResume = !!resumeUrl;
+
   function changeMindset(m) {
     setMindset(m);
     setEnabledSignals(MINDSETS[m].signals);
@@ -953,6 +1015,7 @@ export default function InterviewCopilot() {
     setSpeakerMap({});
     setMonitorProbe(null);
     setMonitorSignal(null);
+    setRightPanelTab("probes");
     setViewMode(window.innerWidth < 1100 ? "monitor" : "dashboard");
 
     const milestones = new Set([900, 1800, 2700]); // 15min, 30min, 45min
@@ -1196,6 +1259,69 @@ export default function InterviewCopilot() {
   const candFirst = candidateName.split(" ")[0].toUpperCase();
   const activeProbes  = probes.filter(p => !dismissed.has(p.id));
   const activeSignals = signals.filter(s => !dismissed.has(s.id));
+
+  // Probe feed content — reusable in center panel (no resume) or right panel tab (with resume)
+  const compact = hasResume; // smaller text when in sidebar
+  function renderProbeFeed() {
+    return <>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2, flexWrap:"wrap" }}>
+        <span style={{ fontSize:9, letterSpacing:4, color:"#38bdf8" }}>SUGGESTED PROBES</span>
+        {activeProbes.length > 0 && (
+          <span style={{ fontSize:9, background:"#0ea5e925", border:"1px solid #0ea5e950", color:"#38bdf8", padding:"1px 8px", borderRadius:10 }}>{activeProbes.length}</span>
+        )}
+        {activeProbes.length > 0 && (
+          <button onClick={() => setDismissed(p => new Set([...p, ...activeProbes.map(f=>f.id)]))} style={{
+            marginLeft:"auto", background:"none", border:"none", color:C.muted, fontSize:9, fontFamily:"inherit", letterSpacing:2, cursor:"pointer", padding:0,
+          }}>CLEAR</button>
+        )}
+        <button onClick={() => runAnalysis("manual")} style={{
+          marginLeft: activeProbes.length > 0 ? 0 : "auto",
+          background:"#1e3a5f", border:"1px solid #3b82f6", borderRadius:3, color:"#93c5fd",
+          fontSize:9, fontFamily:"inherit", letterSpacing:2, cursor:"pointer", padding:"3px 10px",
+        }}>ANALYZE NOW</button>
+      </div>
+      {analyzeError && (
+        <div style={{ padding:"8px 12px", background:"#2a1010", border:"1px solid #ef444460", borderRadius:4, fontSize:10, color:"#fca5a5" }}>
+          ⚠ {analyzeError}
+        </div>
+      )}
+      {activeProbes.length === 0 && !analyzeError && (
+        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:C.edge, fontSize:11, flexDirection:"column", gap:8 }}>
+          <span style={{ fontSize:24, color:C.edge }}>→</span>
+          <span>{compact ? "Waiting for probes..." : "Add transcript entries below, then hit Analyze Now"}</span>
+        </div>
+      )}
+      {activeProbes.map(probe => {
+        const isCoachingCard = probe.type === "coaching";
+        return (
+          <div key={probe.id} style={{
+            padding: compact ? "12px 14px" : "18px 20px",
+            background: isCoachingCard ? "#1a1708" : "#0c1d2e",
+            border: isCoachingCard ? "1px solid #f59e0b40" : "1px solid #0ea5e940",
+            borderLeft: isCoachingCard ? "4px solid #f59e0b" : "4px solid #0ea5e9",
+            borderRadius:"0 8px 8px 0",
+            display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10,
+            animation:"probeIn .3s ease",
+          }}>
+            <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+              <span style={{ fontSize: compact ? 16 : 22, color: isCoachingCard ? "#fcd34d" : "#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>{isCoachingCard ? "\u23F1" : "\u2192"}</span>
+              <span style={{ fontSize: compact ? 13 : 17, color: isCoachingCard ? "#fcd34d" : "#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4, flexShrink:0 }}>
+              {!isCoachingCard && (
+                <button onClick={() => navigator.clipboard.writeText(probe.text)} style={{
+                  background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:12, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+                }} onMouseEnter={e=>e.target.style.color="#38bdf8"} onMouseLeave={e=>e.target.style.color=C.muted} title="Copy">⎘</button>
+              )}
+              <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
+                background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
+              }} onMouseEnter={e=>e.target.style.color= isCoachingCard ? "#fcd34d" : "#38bdf8"} onMouseLeave={e=>e.target.style.color=C.muted}>×</button>
+            </div>
+          </div>
+        );
+      })}
+    </>;
+  }
 
   // ── AUTH GATE ─────────────────────────────────────────────────────────────
   if (authLoading) return (
@@ -1560,6 +1686,46 @@ export default function InterviewCopilot() {
                   <span style={{ fontSize:12, color: obj.done ? "#6ee7b7" : C.body, lineHeight:1.5 }}>{obj.text}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Resume / Application upload */}
+            <div style={{ marginTop:16 }}>
+              <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:8 }}>RESUME / APPLICATION</div>
+              <input ref={resumeInputRef} type="file" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.gif,.webp,.txt,.md,.rtf"
+                onChange={e => { handleResumeUpload(e.target.files?.[0]); if (resumeInputRef.current) resumeInputRef.current.value = ""; }}
+                style={{ display:"none" }}
+              />
+              {resumeFile ? (
+                <div style={{
+                  display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
+                  background:C.surface, border:`1px solid ${C.edge}`, borderRadius:6,
+                }}>
+                  <span style={{ fontSize:16, flexShrink:0 }}>📄</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, color:C.body, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{resumeName}</div>
+                    <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{(resumeFile.size / 1024).toFixed(0)} KB</div>
+                  </div>
+                  <button onClick={clearResume} style={{
+                    background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16, fontFamily:"inherit",
+                  }}>✕</button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => resumeInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = "#3b82f6"; }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor = C.edge; }}
+                  onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = C.edge; handleResumeUpload(e.dataTransfer.files?.[0]); }}
+                  style={{
+                    padding:"24px 16px", border:`2px dashed ${C.edge}`, borderRadius:8,
+                    display:"flex", flexDirection:"column", alignItems:"center", gap:6,
+                    cursor:"pointer", transition:"border-color .2s",
+                  }}
+                >
+                  <span style={{ fontSize:20, color:C.muted }}>📄</span>
+                  <span style={{ fontSize:11, color:C.muted }}>Drop file here or click to browse</span>
+                  <span style={{ fontSize:9, color:C.muted, opacity:.6 }}>PDF · DOCX · JPG · PNG · TXT</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2106,7 +2272,9 @@ export default function InterviewCopilot() {
       fontFamily:"'IBM Plex Mono','Courier New',monospace",
       display:"grid",
       gridTemplateRows: isPortrait ? "48px 1fr auto auto" : "56px 1fr auto auto",
-      gridTemplateColumns: isTablet ? (showSignals ? "1fr 280px" : "1fr 0px") : "1fr 320px",
+      gridTemplateColumns: hasResume
+        ? (isTablet ? "1fr 300px" : "1fr 340px")
+        : (isTablet ? (showSignals ? "1fr 280px" : "1fr 0px") : "1fr 320px"),
       overflow:"hidden",
     }}>
       <style>{GLOBAL_STYLES}</style>
@@ -2170,94 +2338,111 @@ export default function InterviewCopilot() {
         </div>
       </div>
 
-      {/* ── CENTER: PROBE FEED ── */}
-      <div style={{ overflow:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:2 }}>
-          <span style={{ fontSize:9, letterSpacing:4, color:"#38bdf8" }}>SUGGESTED PROBES</span>
-          {activeProbes.length > 0 && (
-            <span style={{
-              fontSize:9, background:"#0ea5e925", border:"1px solid #0ea5e950",
-              color:"#38bdf8", padding:"1px 8px", borderRadius:10,
-            }}>{activeProbes.length}</span>
-          )}
-          {activeProbes.length > 0 && (
-            <button onClick={() => setDismissed(p => new Set([...p, ...activeProbes.map(f=>f.id)]))} style={{
-              marginLeft:"auto", background:"none", border:"none",
-              color:C.muted, fontSize:10, fontFamily:"inherit", letterSpacing:2, cursor:"pointer", padding:0,
-            }}>CLEAR ALL</button>
-          )}
-          {/* Manual analyze button */}
-          <button onClick={() => runAnalysis("manual")} style={{
-            marginLeft: activeProbes.length > 0 ? 0 : "auto",
-            background:"#1e3a5f", border:`1px solid #3b82f6`,
-            borderRadius:3, color:"#93c5fd", fontSize:9, fontFamily:"inherit",
-            letterSpacing:2, cursor:"pointer", padding:"3px 10px",
-          }}>ANALYZE NOW</button>
-        </div>
-
-        {/* Error display */}
-        {analyzeError && (
-          <div style={{ padding:"10px 14px", background:"#2a1010", border:"1px solid #ef444460", borderRadius:4, fontSize:11, color:"#fca5a5" }}>
-            ⚠ {analyzeError} — is the backend running on port 3001?
-          </div>
-        )}
-
-        {activeProbes.length === 0 && !analyzeError && (
+      {/* ── CENTER PANEL ── */}
+      {hasResume ? (
+        /* ── RESUME VIEWER ── */
+        <div style={{ overflow:"hidden", display:"flex", flexDirection:"column", background:C.bg }}>
+          {/* Toolbar */}
           <div style={{
-            flex:1, display:"flex", alignItems:"center", justifyContent:"center",
-            color:C.edge, fontSize:12, flexDirection:"column", gap:10,
+            display:"flex", alignItems:"center", gap:10, padding:"6px 16px",
+            background:C.surface, borderBottom:`1px solid ${C.edge}`, flexShrink:0,
           }}>
-            <span style={{ fontSize:32, color:C.edge }}>→</span>
-            <span>Add transcript entries below, then hit Analyze Now</span>
+            <span style={{ fontSize:12, color:C.muted }}>📄</span>
+            <span style={{ fontSize:10, color:C.body, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>{resumeName}</span>
+            {resumeType === "pdf" && (
+              <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+                <button onClick={() => setPdfPage(p => Math.max(1, p-1))} disabled={pdfPage <= 1}
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage <= 1 ? C.edge : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage <= 1 ? "default" : "pointer", fontFamily:"inherit" }}>‹</button>
+                <span style={{ fontSize:10, color:C.muted, minWidth:50, textAlign:"center" }}>{pdfPage} / {pdfNumPages || "?"}</span>
+                <button onClick={() => setPdfPage(p => Math.min(pdfNumPages||1, p+1))} disabled={pdfPage >= pdfNumPages}
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage >= pdfNumPages ? C.edge : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage >= pdfNumPages ? "default" : "pointer", fontFamily:"inherit" }}>›</button>
+                <span style={{ width:1, height:14, background:C.edge, margin:"0 4px" }}/>
+                <button onClick={() => setPdfScale(s => Math.max(0.5, +(s-0.15).toFixed(2)))}
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color:C.body, fontSize:11, padding:"2px 8px", cursor:"pointer", fontFamily:"inherit" }}>−</button>
+                <span style={{ fontSize:10, color:C.muted, minWidth:36, textAlign:"center" }}>{Math.round(pdfScale*100)}%</span>
+                <button onClick={() => setPdfScale(s => Math.min(3, +(s+0.15).toFixed(2)))}
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color:C.body, fontSize:11, padding:"2px 8px", cursor:"pointer", fontFamily:"inherit" }}>+</button>
+              </div>
+            )}
+            <button onClick={clearResume} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:14, fontFamily:"inherit", flexShrink:0 }}>✕</button>
+          </div>
+          {/* Content */}
+          <div style={{ flex:1, overflow:"auto", display:"flex", justifyContent:"center", padding:16 }}>
+            {resumeType === "pdf" && (
+              <Document file={resumeUrl} onLoadSuccess={({ numPages }) => setPdfNumPages(numPages)}
+                loading={<div style={{ color:C.muted, fontSize:12 }}>Loading PDF...</div>}
+                error={<div style={{ color:"#f87171", fontSize:12 }}>Failed to load PDF</div>}
+              >
+                <Page pageNumber={pdfPage} scale={pdfScale} renderTextLayer={true} renderAnnotationLayer={true} />
+              </Document>
+            )}
+            {resumeType === "docx" && resumeHtml && (
+              <div style={{
+                maxWidth:680, width:"100%", color:C.body, fontSize:13, lineHeight:1.8, fontFamily:"inherit",
+              }} dangerouslySetInnerHTML={{ __html: resumeHtml }} />
+            )}
+            {resumeType === "docx" && !resumeHtml && (
+              <div style={{ color:C.muted, fontSize:12 }}>Converting document...</div>
+            )}
+            {resumeType === "image" && (
+              <img src={resumeUrl} alt={resumeName} style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain", borderRadius:4 }} />
+            )}
+            {resumeType === "text" && (
+              <pre style={{ maxWidth:680, width:"100%", whiteSpace:"pre-wrap", color:C.body, fontSize:13, lineHeight:1.7, fontFamily:"inherit", margin:0 }}>{resumeHtml}</pre>
+            )}
+            {resumeType === "doc" && (
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12, color:C.muted, fontSize:12 }}>
+                <span style={{ fontSize:32 }}>📄</span>
+                <span>Legacy .doc format cannot be previewed in-browser.</span>
+                <button onClick={() => window.open(resumeUrl)} style={{
+                  padding:"8px 18px", background:"#1d4ed8", border:"none", borderRadius:4,
+                  color:"#fff", fontSize:11, fontFamily:"inherit", letterSpacing:2, cursor:"pointer",
+                }}>OPEN IN NEW TAB</button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* ── PROBE FEED (no resume) ── */
+        <div style={{ overflow:"auto", padding:"16px 20px", display:"flex", flexDirection:"column", gap:10 }}>
+          {renderProbeFeed()}
+        </div>
+      )}
+
+      {/* ── RIGHT PANEL ── */}
+      <div style={{
+        gridRow:"2/5", overflow:"auto",
+        borderLeft:`1px solid ${C.edge}`, background:C.surfaceAlt,
+        display: (isTablet && !showSignals && !hasResume) ? "none" : "flex",
+        flexDirection:"column",
+        padding:0,
+      }}>
+        {/* Tab bar (only when resume is active) */}
+        {hasResume && (
+          <div style={{ display:"flex", borderBottom:`1px solid ${C.edge}`, flexShrink:0 }}>
+            {[["probes","PROBES","#38bdf8"],["signals","SIGNALS","#fcd34d"]].map(([key,label,color]) => (
+              <button key={key} onClick={() => setRightPanelTab(key)} style={{
+                flex:1, padding:"10px 0", fontSize:9, letterSpacing:3, fontFamily:"inherit", cursor:"pointer",
+                border:"none", background: rightPanelTab === key ? C.surfaceAlt : "transparent",
+                color: rightPanelTab === key ? color : C.muted,
+                borderBottom: rightPanelTab === key ? `2px solid ${color}` : "2px solid transparent",
+              }}>{label}{key === "probes" && activeProbes.length > 0 ? ` (${activeProbes.length})` : ""}</button>
+            ))}
           </div>
         )}
 
-        {activeProbes.map(probe => {
-          const isCoaching = probe.type === "coaching";
-          return (
-            <div key={probe.id} style={{
-              padding:"18px 20px",
-              background: isCoaching ? "#1a1708" : "#0c1d2e",
-              border: isCoaching ? "1px solid #f59e0b40" : "1px solid #0ea5e940",
-              borderLeft: isCoaching ? "4px solid #f59e0b" : "4px solid #0ea5e9",
-              borderRadius:"0 8px 8px 0",
-              display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:14,
-              animation:"probeIn .3s ease",
-            }}>
-              <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
-                <span style={{ fontSize:22, color: isCoaching ? "#fcd34d" : "#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>{isCoaching ? "\u23F1" : "\u2192"}</span>
-                <span style={{ fontSize:17, color: isCoaching ? "#fcd34d" : "#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
-              </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:6, flexShrink:0 }}>
-                {!isCoaching && (
-                  <button onClick={() => { navigator.clipboard.writeText(probe.text); }} style={{
-                    background:"none", border:"none", color:C.muted,
-                    cursor:"pointer", fontSize:14, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
-                  }}
-                    onMouseEnter={e=>e.target.style.color="#38bdf8"}
-                    onMouseLeave={e=>e.target.style.color=C.muted}
-                    title="Copy to clipboard"
-                  >⎘</button>
-                )}
-                <button onClick={() => setDismissed(p => new Set([...p, probe.id]))} style={{
-                  background:"none", border:"none", color:C.muted,
-                  cursor:"pointer", fontSize:20, padding:"0 2px", fontFamily:"inherit", lineHeight:1,
-                }}
-                  onMouseEnter={e=>e.target.style.color= isCoaching ? "#fcd34d" : "#38bdf8"}
-                  onMouseLeave={e=>e.target.style.color=C.muted}
-                >×</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+        {/* Probes tab content (when resume active and probes tab selected) */}
+        {hasResume && rightPanelTab === "probes" && (
+          <div style={{ flex:1, overflow:"auto", padding:"12px 10px", display:"flex", flexDirection:"column", gap:8 }}>
+            {renderProbeFeed()}
+          </div>
+        )}
 
-      {/* ── RIGHT: SIGNALS PANEL ── */}
-      <div style={{
-        gridRow:"2/5", overflow:"auto", padding: (isTablet && !showSignals) ? "0" : "14px 12px",
-        borderLeft:`1px solid ${C.edge}`, background:C.surfaceAlt,
-        display: (isTablet && !showSignals) ? "none" : "block",
-      }}>
+        {/* Signals content (always when no resume, or when signals tab selected) */}
+        <div style={{
+          flex:1, overflow:"auto", padding:"14px 12px",
+          display: hasResume && rightPanelTab !== "signals" ? "none" : "block",
+        }}>
         <div style={{ marginBottom:14 }}>
           <SectionLabel>Scores</SectionLabel>
           {Object.entries(SIGNAL_TYPES)
@@ -2341,6 +2526,7 @@ export default function InterviewCopilot() {
             );
           })}
         </div>
+        </div>{/* close signals content wrapper */}
       </div>
 
       {/* ── TEXT INPUT BAR ── */}
