@@ -558,6 +558,7 @@ export default function InterviewCopilot() {
     loadPlaybooks();
   }, [supaUser]);
 
+  let _seedingPlaybooks = false; // guard against concurrent seed calls
   async function loadPlaybooks() {
     const { data } = await SUPA.from("disco_playbooks")
       .select("*").order("created_at", { ascending: true });
@@ -568,17 +569,21 @@ export default function InterviewCopilot() {
         enabledSignals: p.enabled_signals, objectives: p.objectives,
       })));
       // Seed any new templates that don't exist yet for existing users
-      const existingNames = new Set(data.map(p => p.name));
-      const missing = PLAYBOOK_TEMPLATES.filter(t => !existingNames.has(t.name));
-      if (missing.length > 0) {
-        const rows = missing.map(t => ({
-          created_by: supaUser.id, created_by_email: supaUser.email,
-          name: t.name, mindset: t.mindset, role_title: t.roleTitle,
-          enabled_signals: t.enabledSignals, objectives: t.objectives, is_shared: true,
-        }));
-        await SUPA.from("disco_playbooks").insert(rows);
-        loadPlaybooks(); // re-fetch to include new ones
-        return; // avoid double-setting state
+      if (!_seedingPlaybooks) {
+        const existingNames = new Set(data.map(p => p.name));
+        const missing = PLAYBOOK_TEMPLATES.filter(t => !existingNames.has(t.name));
+        if (missing.length > 0) {
+          _seedingPlaybooks = true;
+          const rows = missing.map(t => ({
+            created_by: supaUser.id, created_by_email: supaUser.email,
+            name: t.name, mindset: t.mindset, role_title: t.roleTitle,
+            enabled_signals: t.enabledSignals, objectives: t.objectives, is_shared: true,
+          }));
+          await SUPA.from("disco_playbooks").insert(rows);
+          _seedingPlaybooks = false;
+          loadPlaybooks(); // re-fetch to include new ones
+          return;
+        }
       }
     } else {
       // First login — seed default templates for this user
