@@ -663,14 +663,16 @@ export default function InterviewCopilot() {
   }, [phase]);
 
   // ── ANALYSIS CALL ───────────────────────────────────────────────────────
+  const analyzeStatusRef = useRef("idle");
   const runAnalysis = useCallback(async (trigger = "periodic") => {
     if (transcript.length === 0) return;
-    if (analyzeStatus === "analyzing") return;
+    if (analyzeStatusRef.current === "analyzing") return;
 
     analyzeRef.current?.abort();
     analyzeRef.current = new AbortController();
     lastAnalyzedRef.current = Date.now();
 
+    analyzeStatusRef.current = "analyzing";
     setAnalyzeStatus("analyzing");
     setAnalyzeError("");
 
@@ -765,11 +767,13 @@ export default function InterviewCopilot() {
               }
 
               if (summary) setLastSummary(summary);
+              analyzeStatusRef.current = "done";
               setAnalyzeStatus("done");
             }
 
             if (event.type === "error") {
               setAnalyzeError(event.message);
+              analyzeStatusRef.current = "error";
               setAnalyzeStatus("error");
             }
           } catch { /* incomplete chunk, continue */ }
@@ -778,10 +782,11 @@ export default function InterviewCopilot() {
     } catch (err) {
       if (err.name !== "AbortError") {
         setAnalyzeError(err.message);
+        analyzeStatusRef.current = "error";
         setAnalyzeStatus("error");
       }
     }
-  }, [transcript, candidateName, roleTitle, objectives, enabledSignals, analyzeStatus]);
+  }, [transcript, candidateName, roleTitle, objectives, enabledSignals]);
 
   // Keep ref always current so setInterval/ws handlers avoid stale closures
   // NOTE: This must be AFTER runAnalysis is declared — const TDZ would throw otherwise
@@ -1012,7 +1017,7 @@ export default function InterviewCopilot() {
     setPhase("live");
     setTranscript([]); setProbes([]); setSignals([]);
     setDismissed(new Set()); setScores({}); setElapsed(0); setPacing("normal");
-    setAnalyzeStatus("idle"); setLastSummary(""); setAnalyzeError("");
+    analyzeStatusRef.current = "idle"; setAnalyzeStatus("idle"); setLastSummary(""); setAnalyzeError("");
     setDebrief(null);
     setEmailTo(""); setEmailStatus("idle"); setEmailError("");
     speakerMapRef.current = {};
