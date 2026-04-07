@@ -2346,7 +2346,7 @@ export default function InterviewCopilot() {
       {/* ── CENTER PANEL ── */}
       {hasResume ? (
         /* ── RESUME VIEWER ── */
-        <div style={{ overflow:"hidden", display:"flex", flexDirection:"column", background:C.bg }}>
+        <div style={{ gridColumn:"1/2", overflow:"hidden", display:"flex", flexDirection:"column", background:C.bg }}>
           {/* Toolbar */}
           <div style={{
             display:"flex", alignItems:"center", gap:10, padding:"6px 16px",
@@ -2416,7 +2416,7 @@ export default function InterviewCopilot() {
 
       {/* ── RIGHT PANEL ── */}
       <div style={{
-        gridRow:"2/5", overflow:"auto",
+        gridRow:"2/5", gridColumn:"2/3", overflow:"auto",
         borderLeft:`1px solid ${C.edge}`, background:C.surfaceAlt,
         display: (isTablet && !showSignals && !hasResume) ? "none" : "flex",
         flexDirection:"column",
