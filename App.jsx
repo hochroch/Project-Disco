@@ -1300,7 +1300,7 @@ export default function InterviewCopilot() {
         const isCoachingCard = probe.type === "coaching";
         return (
           <div key={probe.id} style={{
-            padding: compact ? "12px 14px" : "18px 20px",
+            padding: compact ? "14px 16px" : "18px 20px",
             background: isCoachingCard ? "#1a1708" : "#0c1d2e",
             border: isCoachingCard ? "1px solid #f59e0b40" : "1px solid #0ea5e940",
             borderLeft: isCoachingCard ? "4px solid #f59e0b" : "4px solid #0ea5e9",
@@ -1309,8 +1309,8 @@ export default function InterviewCopilot() {
             animation:"probeIn .3s ease",
           }}>
             <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
-              <span style={{ fontSize: compact ? 16 : 22, color: isCoachingCard ? "#fcd34d" : "#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>{isCoachingCard ? "\u23F1" : "\u2192"}</span>
-              <span style={{ fontSize: compact ? 13 : 17, color: isCoachingCard ? "#fcd34d" : "#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
+              <span style={{ fontSize: compact ? 18 : 22, color: isCoachingCard ? "#fcd34d" : "#38bdf8", flexShrink:0, lineHeight:1, marginTop:2 }}>{isCoachingCard ? "\u23F1" : "\u2192"}</span>
+              <span style={{ fontSize: compact ? 15 : 17, color: isCoachingCard ? "#fcd34d" : "#e0f2fe", lineHeight:1.55, fontWeight:500 }}>{probe.text}</span>
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:4, flexShrink:0 }}>
               {!isCoachingCard && (
@@ -2278,7 +2278,7 @@ export default function InterviewCopilot() {
       display:"grid",
       gridTemplateRows: isPortrait ? "48px 1fr auto auto" : "56px 1fr auto auto",
       gridTemplateColumns: hasResume
-        ? (isTablet ? "1fr 300px" : "1fr 340px")
+        ? (isTablet ? "1fr 380px" : "1fr 420px")
         : (isTablet ? (showSignals ? "1fr 280px" : "1fr 0px") : "1fr 320px"),
       overflow:"hidden",
     }}>
