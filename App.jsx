@@ -18,7 +18,9 @@ const SUPA = createClient(
   "https://dtazswxluhmdwwibgawn.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0YXpzd3hsdWhtZHd3aWJnYXduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MTI3MTAsImV4cCI6MjA4Njk4ODcxMH0.gzR_uBz4ooctK3IxemLkknLhn6kusMP99TcnL57Jlgs"
 );
-const DISCO_ALLOWED_ROLES = new Set(["admin", "vice_president", "manager", "office", "disco"]);
+// 'disco' role was removed from users.role CHECK constraint on 2026-04-29 in Werner's
+// drop_disco_sales_playbooks migration. Keeping it here would just be dead code.
+const DISCO_ALLOWED_ROLES = new Set(["admin", "vice_president", "manager", "office"]);
 
 // ── COLOR SYSTEM ──────────────────────────────────────────────────────────
 const C = {
@@ -392,6 +394,11 @@ const GLOBAL_STYLES = `
   @keyframes spin      { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
   input:focus, textarea:focus { outline: none; border-color: #3b82f6 !important; }
   textarea { resize: none; }
+  /* Mobile: prevent iOS zoom-on-focus and ensure inputs don't blow out grids */
+  @media (max-width: 600px) {
+    input, select, textarea { font-size: 16px !important; min-width: 0; }
+    button { min-height: 36px; }
+  }
 `;
 
 // ── MAIN ──────────────────────────────────────────────────────────────────
@@ -1057,6 +1064,19 @@ export default function InterviewCopilot() {
     clearInterval(periodicRef.current);
     analyzeRef.current?.abort();
 
+    // Stop mic + tear down Deepgram WS so chunks don't keep streaming after end.
+    if (micActiveRef.current) {
+      try { recorderRef.current?.stop(); } catch { /* */ }
+      try { recorderRef.current?.stream?.getTracks().forEach(t => t.stop()); } catch { /* */ }
+      try { micWsRef.current?.close(); } catch { /* */ }
+      recorderRef.current = null;
+      micWsRef.current = null;
+      interimRef.current = "";
+      micActiveRef.current = false;
+      setMicActive(false);
+      setHotMic(null);
+    }
+
     // Fire debrief
     setDebriefLoading(true);
     setPhase("debrief");
@@ -1350,11 +1370,13 @@ export default function InterviewCopilot() {
           <div style={{ marginBottom:14 }}>
             <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:6 }}>EMAIL</div>
             <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} required autoFocus
+              autoComplete="username" inputMode="email" autoCapitalize="off" autoCorrect="off" name="email"
               style={{ width:"100%", padding:"10px 12px", background:C.surfaceAlt, border:`1px solid ${C.edge}`, borderRadius:3, color:C.bright, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
           <div style={{ marginBottom:22 }}>
             <div style={{ fontSize:9, letterSpacing:3, color:C.muted, marginBottom:6 }}>PASSWORD</div>
             <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required
+              autoComplete="current-password" name="password"
               style={{ width:"100%", padding:"10px 12px", background:C.surfaceAlt, border:`1px solid ${C.edge}`, borderRadius:3, color:C.bright, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
           </div>
           {authError && <div style={{ fontSize:11, color:"#f87171", marginBottom:14 }}>⚠ {authError}</div>}
@@ -2167,16 +2189,17 @@ export default function InterviewCopilot() {
       {/* Top bar */}
       <div style={{
         position:"absolute", top:0, left:0, right:0,
-        padding:"14px 20px", display:"flex", alignItems:"center", gap:12,
+        padding:"max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 14px max(20px, env(safe-area-inset-left))",
+        display:"flex", alignItems:"center", gap:10, flexWrap:"wrap",
         borderBottom:`1px solid ${C.edge}22`,
       }}>
         <span style={{
           width:7, height:7, borderRadius:"50%", background:"#ef4444", flexShrink:0,
           animation:"micPulse 1.2s ease-in-out infinite", boxShadow:"0 0 8px #ef444490",
         }}/>
-        <span style={{ fontSize:12, color:C.muted }}>{candidateName}</span>
-        <span style={{ fontSize:11, color:C.edge, marginLeft:4 }}>·</span>
-        <span style={{ fontSize:12, color:C.muted }}>{roleTitle}</span>
+        <span style={{ fontSize:12, color:C.muted, maxWidth:"38%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{candidateName}</span>
+        <span style={{ fontSize:11, color:C.edge }}>·</span>
+        <span style={{ fontSize:12, color:C.muted, maxWidth:"38%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{roleTitle}</span>
         <span style={{ fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums", marginLeft:"auto" }}>{fmt(elapsed)}</span>
         <span style={{
           width:8, height:8, borderRadius:"50%", flexShrink:0,
@@ -2254,7 +2277,9 @@ export default function InterviewCopilot() {
 
       {/* Mic button — bottom right */}
       <button onClick={toggleMic} style={{
-        position:"absolute", bottom:28, right:28,
+        position:"absolute",
+        bottom:`max(28px, env(safe-area-inset-bottom))`,
+        right:`max(28px, env(safe-area-inset-right))`,
         width:68, height:68, borderRadius:"50%",
         background: micActive ? "#14532d" : "#1e293b",
         border:`2px solid ${micActive ? "#22c55e" : C.edge}`,
@@ -2267,7 +2292,9 @@ export default function InterviewCopilot() {
 
       {/* Analyze button — bottom left, subtle */}
       <button onClick={() => runAnalysis("manual")} style={{
-        position:"absolute", bottom:40, left:28,
+        position:"absolute",
+        bottom:`max(40px, calc(env(safe-area-inset-bottom) + 12px))`,
+        left:`max(28px, env(safe-area-inset-left))`,
         padding:"10px 18px", background:"#1e3a5f", border:`1px solid #3b82f6`,
         borderRadius:4, color:"#93c5fd", fontSize:10, fontFamily:"inherit",
         letterSpacing:2, cursor:"pointer",
