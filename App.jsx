@@ -390,7 +390,10 @@ function StatusPill({ status }) {
 const GLOBAL_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; }
-  body { margin: 0; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  /* Paint html + body the dark color so when content overflows or rubber-bands
+     past the wrapper, white never shows through. Wrapper bg covers the rest. */
+  html, body { background: ${C.bg}; }
+  body { margin: 0; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; overflow-x: hidden; overscroll-behavior-y: none; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: ${C.bg}; }
   ::-webkit-scrollbar-thumb { background: #3a3a52; border-radius: 3px; }
@@ -424,6 +427,7 @@ export default function InterviewCopilot() {
     return () => window.removeEventListener("resize", handler);
   }, []);
   const isTablet   = winW < 1100;
+  const isPhone    = winW < 600;
   const isPortrait = winH > winW;
   const [showSignals, setShowSignals] = useState(true);
 
@@ -1401,10 +1405,10 @@ export default function InterviewCopilot() {
 
   // ── HISTORY ───────────────────────────────────────────────────────────────
   if (phase === "history") return (
-    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:"32px 24px" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding: isPhone ? "20px 14px" : "32px 24px", overflowX:"hidden" }}>
       <style>{GLOBAL_STYLES}</style>
       <div style={{ maxWidth:960, margin:"0 auto" }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:28, borderBottom:`1px solid ${C.edge}`, paddingBottom:20 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:28, borderBottom:`1px solid ${C.edge}`, paddingBottom:20, flexWrap:"wrap", gap:12 }}>
           <div>
             <div style={{ fontSize:9, letterSpacing:6, color:C.muted, marginBottom:6 }}>INTERVIEW INTELLIGENCE SYSTEM</div>
             <h1 style={{ fontSize:24, fontWeight:700, color:C.bright, margin:0, letterSpacing:-1 }}>Session History</h1>
@@ -1426,15 +1430,18 @@ export default function InterviewCopilot() {
               return (
                 <div key={s.id}>
                   <div onClick={() => setHistorySession(isOpen ? null : s)}
-                    style={{ display:"grid", gridTemplateColumns:"1fr 1fr 120px 90px 30px", alignItems:"center", gap:16, padding:"14px 18px", background:isOpen ? C.surfaceAlt : C.surface, border:`1px solid ${isOpen ? "#3b82f6" : C.edge}`, borderRadius:isOpen ? "4px 4px 0 0" : 4, cursor:"pointer", transition:"all .15s" }}>
+                    style={ isPhone
+                      ? { display:"flex", flexDirection:"column", gap:4, padding:"12px 14px", paddingRight:34, position:"relative", background:isOpen ? C.surfaceAlt : C.surface, border:`1px solid ${isOpen ? "#3b82f6" : C.edge}`, borderRadius:isOpen ? "4px 4px 0 0" : 4, cursor:"pointer", transition:"all .15s" }
+                      : { display:"grid", gridTemplateColumns:"1fr 1fr 120px 90px 30px", alignItems:"center", gap:16, padding:"14px 18px", background:isOpen ? C.surfaceAlt : C.surface, border:`1px solid ${isOpen ? "#3b82f6" : C.edge}`, borderRadius:isOpen ? "4px 4px 0 0" : 4, cursor:"pointer", transition:"all .15s" }
+                    }>
                     <div>
                       <div style={{ color:C.bright, fontWeight:600, fontSize:13 }}>{s.candidate_name || "—"}</div>
                       <div style={{ color:C.muted, fontSize:10, marginTop:2 }}>{s.role_title || "—"}</div>
                     </div>
                     <div style={{ color:C.muted, fontSize:11 }}>{dateStr}</div>
-                    <div style={{ color:C.muted, fontSize:11 }}>{s.user_email?.split("@")[0]}</div>
+                    {!isPhone && <div style={{ color:C.muted, fontSize:11 }}>{s.user_email?.split("@")[0]}</div>}
                     <div style={{ color:C.muted, fontSize:11 }}>{dur}</div>
-                    <div style={{ color:C.muted, fontSize:14 }}>{isOpen ? "▲" : "▼"}</div>
+                    <div style={ isPhone ? { position:"absolute", top:12, right:14, color:C.muted, fontSize:14 } : { color:C.muted, fontSize:14 }}>{isOpen ? "▲" : "▼"}</div>
                   </div>
                   {isOpen && result && (
                     <div style={{ background:C.surfaceAlt, border:`1px solid #3b82f6`, borderTop:"none", borderRadius:"0 0 4px 4px", padding:24 }}>
@@ -1491,7 +1498,7 @@ export default function InterviewCopilot() {
 
   // ── SETUP ──────────────────────────────────────────────────────────────
   if (phase === "setup") return (
-    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:"32px 24px" }}>
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding: isPhone ? "20px 14px max(20px, env(safe-area-inset-bottom)) 14px" : "32px 24px", overflowX:"hidden" }}>
       <style>{GLOBAL_STYLES}</style>
 
       {/* ── ONBOARDING OVERLAY ── */}
@@ -1617,20 +1624,20 @@ export default function InterviewCopilot() {
 
       <div style={{ maxWidth:800, margin:"0 auto", animation:"fadeUp .4s ease" }}>
         <div style={{ marginBottom:32, borderBottom:`1px solid ${C.edge}`, paddingBottom:20 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <div style={{ fontSize:9, letterSpacing:6, color:C.muted }}>INTERVIEW INTELLIGENCE SYSTEM · PRE-SESSION BRIEF</div>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:10, color:C.muted }}>{supaUser?.email}</span>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10, flexWrap:"wrap", gap:8 }}>
+            <div style={{ fontSize:9, letterSpacing:isPhone ? 3 : 6, color:C.muted }}>INTERVIEW INTELLIGENCE SYSTEM{isPhone ? "" : " · PRE-SESSION BRIEF"}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              {!isPhone && <span style={{ fontSize:10, color:C.muted }}>{supaUser?.email}</span>}
               <button onClick={() => { loadHistory(); setPhase("history"); }} style={{ padding:"4px 12px", background:"transparent", border:`1px solid ${C.edge}`, borderRadius:3, color:C.muted, fontSize:9, letterSpacing:2, fontFamily:"inherit", cursor:"pointer" }}>HISTORY</button>
               <button onClick={handleSignOut} style={{ padding:"4px 12px", background:"transparent", border:`1px solid ${C.edge}`, borderRadius:3, color:C.muted, fontSize:9, letterSpacing:2, fontFamily:"inherit", cursor:"pointer" }}>SIGN OUT</button>
             </div>
           </div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <h1 style={{ fontSize:28, fontWeight:700, margin:0, color:C.bright, letterSpacing:-1 }}>Configure Session</h1>
-            <div style={{ display:"flex", gap:4 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+            <h1 style={{ fontSize: isPhone ? 22 : 28, fontWeight:700, margin:0, color:C.bright, letterSpacing:-1 }}>Configure Session</h1>
+            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
               {Object.entries(MINDSETS).map(([key, m]) => (
                 <button key={key} onClick={() => changeMindset(key)} style={{
-                  padding:"6px 16px", borderRadius:4, fontSize:10, letterSpacing:2,
+                  padding: isPhone ? "5px 10px" : "6px 16px", borderRadius:4, fontSize:10, letterSpacing:2,
                   fontFamily:"inherit", cursor:"pointer", fontWeight:600,
                   border:`1px solid ${mindset===key ? "#3b82f6" : C.edge}`,
                   background: mindset===key ? "#1d4ed8" : C.surface,
@@ -1643,12 +1650,12 @@ export default function InterviewCopilot() {
         </div>
 
         {/* Playbook bar */}
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, padding:"10px 12px", background:C.surface, border:`1px solid ${C.edge}`, borderRadius:4 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:20, padding:"10px 12px", background:C.surface, border:`1px solid ${C.edge}`, borderRadius:4, flexWrap:"wrap" }}>
           <span style={{ fontSize:9, letterSpacing:3, color:C.muted, flexShrink:0 }}>PLAYBOOKS</span>
           <select
             value={selectedPlaybook}
             onChange={e => setSelectedPlaybook(e.target.value)}
-            style={{ flex:1, background:C.bg, border:`1px solid ${C.edge}`, borderRadius:3, color: selectedPlaybook ? C.body : C.muted, padding:"5px 8px", fontSize:11, fontFamily:"inherit" }}
+            style={{ flex:"1 1 200px", minWidth:140, background:C.bg, border:`1px solid ${C.edge}`, borderRadius:3, color: selectedPlaybook ? C.body : C.muted, padding:"6px 8px", fontSize:13, fontFamily:"inherit" }}
           >
             <option value="">— select —</option>
             {savedPlaybooks.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
@@ -1677,13 +1684,13 @@ export default function InterviewCopilot() {
             cursor:"pointer",
           }}>{"\u2B06"}</button>
           <input ref={importFileRef} type="file" accept=".json" onChange={importPlaybook} style={{ display:"none" }}/>
-          <div style={{ width:1, height:20, background:C.edge, flexShrink:0 }}/>
+          {!isPhone && <div style={{ width:1, height:20, background:C.edge, flexShrink:0 }}/>}
           <input
             value={playbookName}
             onChange={e => setPlaybookName(e.target.value)}
             onKeyDown={e => e.key === "Enter" && savePlaybook()}
             placeholder="Save as..."
-            style={{ width:130, background:C.bg, border:`1px solid ${C.edge}`, borderRadius:3, color:C.body, padding:"5px 8px", fontSize:11, fontFamily:"inherit" }}
+            style={{ flex: isPhone ? "1 1 100%" : "0 0 130px", minWidth:0, width: isPhone ? "auto" : 130, background:C.bg, border:`1px solid ${C.edge}`, borderRadius:3, color:C.body, padding:"6px 8px", fontSize:13, fontFamily:"inherit" }}
           />
           <button onClick={savePlaybook} disabled={!playbookName.trim()} style={{
             padding:"5px 12px", background: playbookName.trim() ? "#166534" : C.edge,
@@ -1692,7 +1699,7 @@ export default function InterviewCopilot() {
           }}>SAVE</button>
         </div>
 
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:32 }}>
+        <div style={{ display:"grid", gridTemplateColumns: isPhone ? "1fr" : "1fr 1fr", gap: isPhone ? 24 : 32 }}>
           {/* Left */}
           <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
             {[[MINDSETS[mindset].nameLabel, candidateName, setCandidateName], [MINDSETS[mindset].roleLabel, roleTitle, setRoleTitle]].map(([lbl,val,set]) => (
@@ -1849,7 +1856,7 @@ export default function InterviewCopilot() {
 
   // ── DEBRIEF ────────────────────────────────────────────────────────────
   if (phase === "debrief") return (
-    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding:28 }}>
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.body, fontFamily:"'IBM Plex Mono','Courier New',monospace", padding: isPhone ? "20px 14px" : 28, overflowX:"hidden" }}>
       <style>{GLOBAL_STYLES}</style>
       <div style={{ maxWidth:820, margin:"0 auto", animation:"fadeUp .4s ease" }}>
         <div style={{ fontSize:9, letterSpacing:5, color:C.muted, marginBottom:8 }}>SESSION COMPLETE · {fmt(elapsed)}</div>
