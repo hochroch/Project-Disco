@@ -23,14 +23,21 @@ const SUPA = createClient(
 const DISCO_ALLOWED_ROLES = new Set(["admin", "vice_president", "manager", "office"]);
 
 // ── COLOR SYSTEM ──────────────────────────────────────────────────────────
+// Contrast ratios on C.bg (#0d0d14):
+//   bright (#f1f5f9) ≈ 14:1   headings, primary text
+//   body   (#c4c9d4) ≈ 10:1   regular body / paragraph text
+//   muted  (#9ca3af) ≈ 6.4:1  secondary labels, AA pass for small text
+//   dim    (#6b7280) ≈ 4.2:1  tertiary/disabled hints — never use under 11px
+//   edge   (#252538) ≈ 1.7:1  BORDERS ONLY — never use as text color
 const C = {
   bg:         "#0d0d14",
   surface:    "#161622",
   surfaceAlt: "#1c1c2a",
   edge:       "#252538",
-  muted:      "#6b7280",
-  body:       "#c4c9d4",
-  bright:     "#f1f5f9",
+  muted:      "#9ca3af",
+  dim:        "#6b7280",
+  body:       "#d6dae3",
+  bright:     "#f5f7fb",
 };
 
 // ── SIGNAL TYPES ──────────────────────────────────────────────────────────
@@ -383,10 +390,11 @@ function StatusPill({ status }) {
 const GLOBAL_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; }
-  body { margin: 0; }
-  ::-webkit-scrollbar { width: 4px; }
+  body { margin: 0; line-height: 1.55; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: ${C.bg}; }
-  ::-webkit-scrollbar-thumb { background: ${C.edge}; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: #3a3a52; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: ${C.muted}; }
   @keyframes micPulse  { 0%,100%{opacity:1} 50%{opacity:.3} }
   @keyframes probeIn   { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
   @keyframes sigIn     { from{opacity:0;transform:translateX(10px)} to{opacity:1;transform:translateX(0)} }
@@ -586,7 +594,7 @@ export default function InterviewCopilot() {
             name: t.name, mindset: t.mindset, role_title: t.roleTitle,
             enabled_signals: t.enabledSignals, objectives: t.objectives, is_shared: true,
           }));
-          await SUPA.from("disco_playbooks").insert(rows);
+          await SUPA.from("disco_playbooks").upsert(rows, { onConflict: "created_by,name", ignoreDuplicates: true });
           _seedingPlaybooks = false;
           loadPlaybooks(); // re-fetch to include new ones
           return;
@@ -1316,8 +1324,8 @@ export default function InterviewCopilot() {
         </div>
       )}
       {activeProbes.length === 0 && !analyzeError && (
-        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:C.edge, fontSize:11, flexDirection:"column", gap:8 }}>
-          <span style={{ fontSize:24, color:C.edge }}>→</span>
+        <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:C.dim, fontSize:11, flexDirection:"column", gap:8 }}>
+          <span style={{ fontSize:24, color:C.dim }}>→</span>
           <span>{compact ? "Waiting for probes..." : "Add transcript entries below, then hit Analyze Now"}</span>
         </div>
       )}
@@ -2093,7 +2101,7 @@ export default function InterviewCopilot() {
                 const rationale = debrief.scoring_rationale?.[key];
                 return `<tr>
                   <td style="padding:8px 12px;border-bottom:1px solid #252538;color:${scoreColor(val)};font-weight:700;width:50px;text-align:center;">${val}</td>
-                  <td style="padding:8px 12px;border-bottom:1px solid #252538;color:#c4c9d4;">${esc(sig.label)}${rationale ? `<div style="font-size:11px;color:#6b7280;margin-top:4px;">${esc(rationale)}</div>` : ""}</td>
+                  <td style="padding:8px 12px;border-bottom:1px solid #252538;color:#c4c9d4;">${esc(sig.label)}${rationale ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px;">${esc(rationale)}</div>` : ""}</td>
                 </tr>`;
               }).join("");
 
@@ -2120,7 +2128,7 @@ export default function InterviewCopilot() {
 
               const emailHtml = debrief.follow_up_email_draft
                 ? `<div style="margin-bottom:28px;">
-                    <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Follow-Up Email Draft</div>
+                    <div style="font-size:10px;letter-spacing:4px;color:#9ca3af;margin-bottom:10px;text-transform:uppercase;">Follow-Up Email Draft</div>
                     <div style="padding:16px;background:#161622;border:1px solid #252538;border-radius:4px;font-size:12px;color:#c4c9d4;line-height:1.8;white-space:pre-wrap;">${esc(debrief.follow_up_email_draft)}</div>
                   </div>` : "";
 
@@ -2128,34 +2136,34 @@ export default function InterviewCopilot() {
 <html><head><meta charset="UTF-8"><title>Debrief — ${esc(candidateName)}</title></head>
 <body style="margin:0;padding:0;background:#0d0d14;font-family:'Courier New',monospace;">
 <div style="max-width:680px;margin:0 auto;padding:32px 24px;">
-  <div style="font-size:9px;letter-spacing:5px;color:#6b7280;margin-bottom:8px;">INTERVIEW DEBRIEF</div>
+  <div style="font-size:9px;letter-spacing:5px;color:#9ca3af;margin-bottom:8px;">INTERVIEW DEBRIEF</div>
   <h1 style="font-size:24px;font-weight:700;margin:0 0 4px;color:#f1f5f9;">${esc(candidateName)}</h1>
-  <div style="font-size:12px;color:#6b7280;margin-bottom:24px;">${esc(roleTitle)} · Duration: ${fmt(elapsed)}</div>
+  <div style="font-size:12px;color:#9ca3af;margin-bottom:24px;">${esc(roleTitle)} · Duration: ${fmt(elapsed)}</div>
 
   <div style="padding:14px 20px;margin-bottom:20px;border-radius:6px;background:#161622;border:1px solid #252538;display:flex;align-items:center;gap:16px;">
     <div>
-      <div style="font-size:9px;letter-spacing:3px;color:#6b7280;margin-bottom:4px;">HIRING VERDICT</div>
+      <div style="font-size:9px;letter-spacing:3px;color:#9ca3af;margin-bottom:4px;">HIRING VERDICT</div>
       <div style="font-size:20px;font-weight:700;color:${verdictColor};">${esc(debrief.verdict)}</div>
     </div>
-    <div style="margin-left:auto;font-size:12px;color:#6b7280;max-width:400px;line-height:1.6;">${esc(debrief.headline)}</div>
+    <div style="margin-left:auto;font-size:12px;color:#9ca3af;max-width:400px;line-height:1.6;">${esc(debrief.headline)}</div>
   </div>
 
-  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Signal Scores</div>
+  <div style="font-size:10px;letter-spacing:4px;color:#9ca3af;margin-bottom:10px;text-transform:uppercase;">Signal Scores</div>
   <table style="width:100%;border-collapse:collapse;margin-bottom:20px;background:#161622;border:1px solid #252538;border-radius:6px;">
     ${scoresHtml}
   </table>
 
-  ${risksHtml ? `<div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Risk Factors</div><div style="margin-bottom:20px;">${risksHtml}</div>` : ""}
+  ${risksHtml ? `<div style="font-size:10px;letter-spacing:4px;color:#9ca3af;margin-bottom:10px;text-transform:uppercase;">Risk Factors</div><div style="margin-bottom:20px;">${risksHtml}</div>` : ""}
 
-  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Observations</div>
+  <div style="font-size:10px;letter-spacing:4px;color:#9ca3af;margin-bottom:10px;text-transform:uppercase;">Observations</div>
   <div style="margin-bottom:20px;">${obsHtml}</div>
 
-  <div style="font-size:10px;letter-spacing:4px;color:#6b7280;margin-bottom:10px;text-transform:uppercase;">Recommended Next Steps</div>
+  <div style="font-size:10px;letter-spacing:4px;color:#9ca3af;margin-bottom:10px;text-transform:uppercase;">Recommended Next Steps</div>
   <div style="margin-bottom:20px;">${stepsHtml}</div>
 
   ${emailHtml}
 
-  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #252538;font-size:10px;color:#6b728060;letter-spacing:2px;">GENERATED BY INTERVIEW COPILOT</div>
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #252538;font-size:10px;color:#9ca3af80;letter-spacing:2px;">GENERATED BY INTERVIEW COPILOT</div>
 </div>
 </body></html>`;
 
@@ -2198,7 +2206,7 @@ export default function InterviewCopilot() {
           animation:"micPulse 1.2s ease-in-out infinite", boxShadow:"0 0 8px #ef444490",
         }}/>
         <span style={{ fontSize:12, color:C.muted, maxWidth:"38%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{candidateName}</span>
-        <span style={{ fontSize:11, color:C.edge }}>·</span>
+        <span style={{ fontSize:11, color:C.dim }}>·</span>
         <span style={{ fontSize:12, color:C.muted, maxWidth:"38%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{roleTitle}</span>
         <span style={{ fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums", marginLeft:"auto" }}>{fmt(elapsed)}</span>
         <span style={{
@@ -2235,7 +2243,7 @@ export default function InterviewCopilot() {
           <div style={{ fontSize:26, color:"#e0f2fe", lineHeight:1.55, fontWeight:500 }}>
             → {monitorProbe.text}
           </div>
-          <div style={{ fontSize:10, color:C.edge, marginTop:14 }}>tap to dismiss</div>
+          <div style={{ fontSize:11, color:C.dim, marginTop:14, letterSpacing:1 }}>tap to dismiss</div>
         </div>
       )}
 
@@ -2265,8 +2273,8 @@ export default function InterviewCopilot() {
         <div style={{
           position:"absolute", top:"50%", left:"50%",
           transform:"translate(-50%, -50%)",
-          color: analyzeStatus === "analyzing" ? C.muted : C.edge,
-          fontSize:13, textAlign:"center", display:"flex", alignItems:"center", gap:10,
+          color: analyzeStatus === "analyzing" ? C.muted : C.dim,
+          fontSize:14, textAlign:"center", display:"flex", alignItems:"center", gap:10,
         }}>
           {analyzeStatus === "analyzing"
             ? <><span style={{ animation:"spin 1s linear infinite", display:"inline-block", fontSize:16 }}>◌</span> analyzing...</>
@@ -2389,10 +2397,10 @@ export default function InterviewCopilot() {
             {resumeType === "pdf" && (
               <div style={{ display:"flex", alignItems:"center", gap:4 }}>
                 <button onClick={() => setPdfPage(p => Math.max(1, p-1))} disabled={pdfPage <= 1}
-                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage <= 1 ? C.edge : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage <= 1 ? "default" : "pointer", fontFamily:"inherit" }}>‹</button>
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage <= 1 ? C.dim : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage <= 1 ? "default" : "pointer", fontFamily:"inherit" }}>‹</button>
                 <span style={{ fontSize:10, color:C.muted, minWidth:50, textAlign:"center" }}>{pdfPage} / {pdfNumPages || "?"}</span>
                 <button onClick={() => setPdfPage(p => Math.min(pdfNumPages||1, p+1))} disabled={pdfPage >= pdfNumPages}
-                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage >= pdfNumPages ? C.edge : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage >= pdfNumPages ? "default" : "pointer", fontFamily:"inherit" }}>›</button>
+                  style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color: pdfPage >= pdfNumPages ? C.dim : C.body, fontSize:11, padding:"2px 8px", cursor: pdfPage >= pdfNumPages ? "default" : "pointer", fontFamily:"inherit" }}>›</button>
                 <span style={{ width:1, height:14, background:C.edge, margin:"0 4px" }}/>
                 <button onClick={() => setPdfScale(s => Math.max(0.5, +(s-0.15).toFixed(2)))}
                   style={{ background:"none", border:`1px solid ${C.edge}`, borderRadius:3, color:C.body, fontSize:11, padding:"2px 8px", cursor:"pointer", fontFamily:"inherit" }}>−</button>
@@ -2488,7 +2496,7 @@ export default function InterviewCopilot() {
               <div key={key} style={{ marginBottom:9 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
                   <span style={{ fontSize:18, letterSpacing:0, color:C.muted }}>{sig.icon} {sig.label}</span>
-                  <span style={{ fontSize:10, color: scores[key] ? sig.color : C.edge, fontVariantNumeric:"tabular-nums" }}>
+                  <span style={{ fontSize:10, color: scores[key] ? sig.color : C.dim, fontVariantNumeric:"tabular-nums" }}>
                     {scores[key] || "–"}
                   </span>
                 </div>
